@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -110,13 +112,13 @@ func (h *ProjectHandler) Down(w http.ResponseWriter, r *http.Request) {
 
 func (h *ProjectHandler) Logs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	p, err := h.svc.GetProject(r.Context(), id)
+	_, err := h.svc.GetProject(r.Context(), id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
 
-	// SSE stream
+	// SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -127,16 +129,32 @@ func (h *ProjectHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = p // TODO: Stream container logs via Docker API
-	// For now, send a ping to keep connection alive
+	logCh := make(chan string, 64)
+
+	// Start streaming logs in background
+	go func() {
+		defer close(logCh)
+		h.svc.StreamLogs(r.Context(), id, logCh)
+	}()
+
+	pingTicker := time.NewTicker(15 * time.Second)
+	defer pingTicker.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		default:
-			w.Write([]byte("data: {\"type\":\"ping\"}\n\n"))
+		case line, ok := <-logCh:
+			if !ok {
+				// Stream ended (all containers stopped or error)
+				return
+			}
+			msg, _ := json.Marshal(map[string]string{"type": "log", "message": line})
+			fmt.Fprintf(w, "data: %s\n\n", msg)
 			flusher.Flush()
-			return
+		case <-pingTicker.C:
+			fmt.Fprintf(w, "data: {\"type\":\"ping\"}\n\n")
+			flusher.Flush()
 		}
 	}
 }

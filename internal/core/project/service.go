@@ -1,14 +1,18 @@
 package project
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -811,6 +815,102 @@ func (s *Service) hasWebServiceFromSvcs(services []Svc) bool {
 		}
 	}
 	return false
+}
+
+// StreamLogs streams logs from all running containers of a project into out.
+// It blocks until ctx is cancelled (client disconnect). The caller must close out.
+func (s *Service) StreamLogs(ctx context.Context, projectID string, out chan<- string) error {
+	p, err := s.GetProject(ctx, projectID)
+	if err != nil {
+		return fmt.Errorf("fetching project: %w", err)
+	}
+
+	containers, err := s.dockerCli.ListProjectContainers(ctx, p.Name)
+	if err != nil {
+		return fmt.Errorf("listing containers: %w", err)
+	}
+
+	// Filter only running containers
+	var running []docker.ContainerStatus
+	for _, c := range containers {
+		if c.State == "running" {
+			running = append(running, c)
+		}
+	}
+	if len(running) == 0 {
+		return fmt.Errorf("no running containers")
+	}
+
+	var wg sync.WaitGroup
+	for _, ctr := range running {
+		wg.Add(1)
+		go func(c docker.ContainerStatus) {
+			defer wg.Done()
+			s.streamContainerLogs(ctx, c, p.Name, out)
+		}(ctr)
+	}
+
+	wg.Wait()
+	return nil
+}
+
+// streamContainerLogs reads the Docker multiplexed log stream for a single container
+// and sends prefixed lines to out.
+func (s *Service) streamContainerLogs(ctx context.Context, ctr docker.ContainerStatus, projectName string, out chan<- string) {
+	reader, err := s.dockerCli.GetContainerLogs(ctx, ctr.ID, true)
+	if err != nil {
+		return
+	}
+	defer reader.Close()
+
+	// Derive short service name: "devctl-myproject-nginx-1" → "nginx"
+	label := ctr.Name
+	prefix := "devctl-" + projectName + "-"
+	if strings.HasPrefix(label, prefix) {
+		label = strings.TrimPrefix(label, prefix)
+		// Remove trailing "-1", "-2" replica suffix
+		if idx := strings.LastIndex(label, "-"); idx > 0 {
+			label = label[:idx]
+		}
+	}
+
+	// Docker multiplexed stream: each frame has an 8-byte header.
+	// [0]: stream type (1=stdout, 2=stderr), [4:8]: big-endian uint32 payload size.
+	header := make([]byte, 8)
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		_, err := io.ReadFull(reader, header)
+		if err != nil {
+			return
+		}
+
+		size := binary.BigEndian.Uint32(header[4:8])
+		if size == 0 {
+			continue
+		}
+
+		payload := make([]byte, size)
+		_, err = io.ReadFull(reader, payload)
+		if err != nil {
+			return
+		}
+
+		scanner := bufio.NewScanner(strings.NewReader(string(payload)))
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- fmt.Sprintf("[%s] %s", label, line):
+			}
+		}
+	}
 }
 
 func (s *Service) refreshTraefikCerts() {

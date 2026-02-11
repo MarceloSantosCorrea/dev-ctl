@@ -15,6 +15,7 @@ type Template struct {
 	Category         string                    `yaml:"category" json:"category"`
 	Description      string                    `yaml:"description" json:"description"`
 	DefaultImage     string                    `yaml:"default_image" json:"default_image"`
+	Versions         []TemplateVersion         `yaml:"versions,omitempty" json:"versions,omitempty"`
 	Dockerfile       string                    `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
 	Ports            []TemplatePort            `yaml:"ports" json:"ports"`
 	Environment      map[string]TemplateEnvVar `yaml:"environment" json:"environment"`
@@ -31,6 +32,11 @@ type ConnectionInfo struct {
 	PasswordEnv      string `yaml:"password_env,omitempty" json:"password_env,omitempty"`
 	DatabaseEnv      string `yaml:"database_env,omitempty" json:"database_env,omitempty"`
 	ConnectionString string `yaml:"connection_string,omitempty" json:"connection_string,omitempty"`
+}
+
+type TemplateVersion struct {
+	Label string `yaml:"label" json:"label"`
+	Image string `yaml:"image" json:"image"`
 }
 
 type TemplatePort struct {

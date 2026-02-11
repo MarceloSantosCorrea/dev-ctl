@@ -1,6 +1,6 @@
 import { Database, Globe, Server, MessageSquare, HardDrive, ToggleLeft, ToggleRight, Trash2, Copy, Check, Settings } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import type { ServiceItem } from '../lib/api'
+import type { ServiceItem, Template } from '../lib/api'
 
 const categoryIcons: Record<string, typeof Database> = {
   database: Database,
@@ -17,6 +17,9 @@ interface ServiceCardProps {
   onDelete?: () => void
   onUpdateDocumentRoot?: (documentRoot: string) => void
   isUpdatingDocumentRoot?: boolean
+  template?: Template
+  onUpdateImage?: (image: string) => void
+  isUpdatingImage?: boolean
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -43,6 +46,9 @@ export default function ServiceCard({
   onDelete,
   onUpdateDocumentRoot,
   isUpdatingDocumentRoot = false,
+  template,
+  onUpdateImage,
+  isUpdatingImage = false,
 }: ServiceCardProps) {
   const Icon = categoryIcons[service.template_name] || HardDrive
   const isNginx = service.template_name === 'nginx'
@@ -193,6 +199,27 @@ export default function ServiceCard({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {template?.versions && template.versions.length > 0 && onUpdateImage && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="text-xs font-medium text-slate-500 flex items-center gap-1 mb-2">
+            <Settings className="w-3.5 h-3.5" />
+            Versão
+          </p>
+          <select
+            value={(service.config?.image as string) || template.default_image}
+            onChange={(e) => onUpdateImage(e.target.value)}
+            disabled={isUpdatingImage}
+            className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white disabled:opacity-50"
+          >
+            {template.versions.map((v) => (
+              <option key={v.image} value={v.image}>
+                {v.label}{v.image === template.default_image ? ' (padrão)' : ''}
+              </option>
+            ))}
+          </select>
         </div>
       )}
     </div>

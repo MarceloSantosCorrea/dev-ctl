@@ -203,6 +203,39 @@ export default function NewProject() {
             </div>
           )}
 
+          {selectedServices.map((svc) => {
+            const tmpl = templates?.find((t) => t.name === svc.template_name)
+            if (!tmpl?.versions?.length) return null
+            const currentImage = (svc.config.image as string) || tmpl.default_image
+            return (
+              <div key={svc.template_name} className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
+                <h3 className="text-sm font-medium text-slate-800 mb-2">Versão do {tmpl.display_name}</h3>
+                <select
+                  value={currentImage}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    updateServiceConfig(svc.template_name, (currentConfig) => {
+                      const nextConfig = { ...currentConfig }
+                      if (value === tmpl.default_image) {
+                        delete nextConfig.image
+                      } else {
+                        nextConfig.image = value
+                      }
+                      return nextConfig
+                    })
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                >
+                  {tmpl.versions.map((v) => (
+                    <option key={v.image} value={v.image}>
+                      {v.label}{v.image === tmpl.default_image ? ' (padrão)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )
+          })}
+
           <div className="grid grid-cols-2 gap-3">
             {templates?.map((tmpl) => (
               <button
@@ -288,6 +321,18 @@ export default function NewProject() {
                 <dd className="text-sm text-slate-900 font-mono">{nginxDocumentRoot}</dd>
               </div>
             )}
+            {selectedServices.map((svc) => {
+              const tmpl = templates?.find((t) => t.name === svc.template_name)
+              const customImage = svc.config.image as string | undefined
+              if (!customImage || !tmpl) return null
+              const version = tmpl.versions?.find((v) => v.image === customImage)
+              return (
+                <div key={svc.template_name} className="py-3 flex justify-between">
+                  <dt className="text-sm font-medium text-slate-500">Versão {tmpl.display_name}</dt>
+                  <dd className="text-sm text-slate-900">{version?.label || customImage}</dd>
+                </div>
+              )
+            })}
           </dl>
 
           {createMutation.error && (

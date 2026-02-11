@@ -375,6 +375,17 @@ func (s *Service) UpdateService(ctx context.Context, serviceID string, name stri
 	if err != nil {
 		return nil, err
 	}
+
+	// Restart project if running
+	svc, err := s.getService(ctx, serviceID)
+	if err != nil {
+		return nil, err
+	}
+	p, err := s.GetProject(ctx, svc.ProjectID)
+	if err == nil && p.Status == "running" {
+		_ = s.ProjectUp(ctx, p.ID)
+	}
+
 	return s.getService(ctx, serviceID)
 }
 

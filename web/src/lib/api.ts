@@ -37,6 +37,7 @@ export interface Template {
   category: string;
   description: string;
   default_image: string;
+  versions?: { label: string; image: string }[];
   ports: { internal: number; protocol: string; description: string }[];
   environment: Record<string, { default: string; description: string }>;
   volumes: { target: string; description: string }[];

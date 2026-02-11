@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Play, Square, Trash2, ExternalLink, Loader2, AlertTriangle, ArrowLeft, CircleDot, FolderOpen,
 } from 'lucide-react'
-import { api } from '../lib/api'
+import { api, type Template } from '../lib/api'
 import ServiceCard from '../components/ServiceCard'
 import PortTable from '../components/PortTable'
 import LogViewer from '../components/LogViewer'
@@ -30,14 +30,31 @@ export default function ProjectDetail() {
     refetchInterval: 5000,
   })
 
+  const { data: templates } = useQuery({
+    queryKey: ['templates'],
+    queryFn: api.listTemplates,
+  })
+
   const upMutation = useMutation({
     mutationFn: () => api.projectUp(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
+    onError: (err) => {
+      setToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Falha ao iniciar o projeto.',
+      })
+    },
   })
 
   const downMutation = useMutation({
     mutationFn: () => api.projectDown(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
+    onError: (err) => {
+      setToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Falha ao parar o projeto.',
+      })
+    },
   })
 
   const deleteMutation = useMutation({
@@ -63,12 +80,12 @@ export default function ProjectDetail() {
       api.updateService(id!, payload.serviceId, { name: payload.name, config: payload.config }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project', id] })
-      setToast({ type: 'success', message: 'Document root do Nginx atualizado.' })
+      setToast({ type: 'success', message: 'Serviço atualizado.' })
     },
     onError: (err) => {
       setToast({
         type: 'error',
-        message: err instanceof Error ? err.message : 'Falha ao atualizar o document root do Nginx.',
+        message: err instanceof Error ? err.message : 'Falha ao atualizar o serviço.',
       })
     },
   })
@@ -222,6 +239,22 @@ export default function ProjectDetail() {
                   })
                 }}
                 isUpdatingDocumentRoot={updateServiceMutation.isPending}
+                template={templates?.find((t: Template) => t.name === svc.template_name)}
+                onUpdateImage={(image) => {
+                  const tmpl = templates?.find((t: Template) => t.name === svc.template_name)
+                  const nextConfig = { ...(svc.config || {}) }
+                  if (tmpl && image === tmpl.default_image) {
+                    delete nextConfig.image
+                  } else {
+                    nextConfig.image = image
+                  }
+                  updateServiceMutation.mutate({
+                    serviceId: svc.id,
+                    name: svc.name,
+                    config: nextConfig,
+                  })
+                }}
+                isUpdatingImage={updateServiceMutation.isPending}
               />
             ))}
             {(!project.services || project.services.length === 0) && (

@@ -3,6 +3,13 @@ display_name: Node.js
 category: runtime
 description: Node.js JavaScript runtime
 default_image: "node:22-alpine"
+versions:
+  - label: "22"
+    image: "node:22-alpine"
+  - label: "20"
+    image: "node:20-alpine"
+  - label: "18"
+    image: "node:18-alpine"
 ports:
   - internal: 3000
     protocol: tcp

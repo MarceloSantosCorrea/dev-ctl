@@ -3,10 +3,36 @@ display_name: PHP-FPM
 category: runtime
 description: PHP FastCGI Process Manager
 default_image: "php:8.3-fpm"
+versions:
+  - label: "8.5"
+    image: "php:8.5-fpm"
+  - label: "8.4"
+    image: "php:8.4-fpm"
+  - label: "8.3"
+    image: "php:8.3-fpm"
+  - label: "8.2"
+    image: "php:8.2-fpm"
+  - label: "8.1"
+    image: "php:8.1-fpm"
+  - label: "8.0"
+    image: "php:8.0-fpm"
+  - label: "7.4"
+    image: "php:7.4-fpm"
+  - label: "7.3"
+    image: "php:7.3-fpm"
+  - label: "7.2"
+    image: "php:7.2-fpm"
+  - label: "7.1"
+    image: "php:7.1-fpm"
 dockerfile: |
-  RUN apt-get update && apt-get install -y \
+  RUN if [ -f /etc/apt/sources.list ]; then \
+        sed -i '/security/d; /updates/d' /etc/apt/sources.list; \
+        sed -i 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list; \
+      fi \
+      && apt-get update && apt-get install -y \
       libzip-dev libpng-dev libonig-dev libxml2-dev libcurl4-openssl-dev unzip \
-      && docker-php-ext-install pdo pdo_mysql zip gd mbstring xml curl bcmath opcache \
+      && docker-php-ext-install pdo pdo_mysql zip gd mbstring xml curl bcmath \
+      && (docker-php-ext-install opcache 2>/dev/null || true) \
       && apt-get clean && rm -rf /var/lib/apt/lists/*
 ports:
   - internal: 9000

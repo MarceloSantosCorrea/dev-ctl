@@ -86,7 +86,7 @@ func ComposeUp(ctx context.Context, composeFilePath string, projectName string) 
 	cmd := exec.CommandContext(ctx, "docker", "compose",
 		"-f", composeFilePath,
 		"-p", "devctl-"+projectName,
-		"up", "-d",
+		"up", "-d", "--build",
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {

@@ -2,11 +2,14 @@ package hosts
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"unicode/utf16"
 )
 
 const (
@@ -29,6 +32,7 @@ func NewManagerWithPath(path string) *Manager {
 }
 
 // SetDomains replaces the entire managed block with the given list of domains.
+// On WSL it also updates the Windows hosts file so browsers resolve the domains.
 func (m *Manager) SetDomains(domains []string) error {
 	content, err := os.ReadFile(m.filePath)
 	if err != nil {
@@ -51,19 +55,37 @@ func (m *Manager) SetDomains(domains []string) error {
 			if sudoErr := m.writeWithSudo(newContent); sudoErr != nil {
 				return fmt.Errorf("writing hosts file (tried sudo): %w", sudoErr)
 			}
-			return nil
+		} else {
+			return fmt.Errorf("writing hosts file: %w", err)
 		}
-		return fmt.Errorf("writing hosts file: %w", err)
+	}
+
+	// On WSL, also sync to the Windows hosts file
+	if isWSL() {
+		if err := syncToWindowsHosts(domains); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not sync Windows hosts file: %v\n", err)
+		}
 	}
 
 	return nil
 }
 
 // writeWithSudo writes content to the hosts file using sudo tee.
+// Uses sudo -n (non-interactive) first; falls back to interactive sudo.
 func (m *Manager) writeWithSudo(content string) error {
-	cmd := exec.Command("sudo", "tee", m.filePath)
+	// Try non-interactive first (works if sudoers rule is configured)
+	cmd := exec.Command("sudo", "-n", "tee", m.filePath)
 	cmd.Stdin = bytes.NewBufferString(content)
-	cmd.Stdout = nil // discard tee stdout
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if cmd.Run() == nil {
+		return nil
+	}
+
+	// Fall back to interactive sudo (requires TTY)
+	cmd = exec.Command("sudo", "tee", m.filePath)
+	cmd.Stdin = bytes.NewBufferString(content)
+	cmd.Stdout = nil
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -143,4 +165,89 @@ func splitManagedBlock(content string) (before, managed, after string) {
 	}
 
 	return before, managed, after
+}
+
+// isWSL returns true when running inside Windows Subsystem for Linux.
+func isWSL() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	lower := bytes.ToLower(data)
+	return bytes.Contains(lower, []byte("microsoft")) || bytes.Contains(lower, []byte("wsl"))
+}
+
+const windowsHostsPath = "/mnt/c/Windows/System32/drivers/etc/hosts"
+
+// syncToWindowsHosts updates the Windows hosts file with the same managed block.
+// It reads the current Windows hosts file, replaces the managed block, and writes
+// it back using PowerShell with elevation (shows a UAC prompt).
+func syncToWindowsHosts(domains []string) error {
+	content, err := os.ReadFile(windowsHostsPath)
+	if err != nil {
+		return fmt.Errorf("reading Windows hosts: %w", err)
+	}
+
+	// Preserve UTF-8 BOM if present
+	raw := string(content)
+	bom := ""
+	if strings.HasPrefix(raw, "\xef\xbb\xbf") {
+		bom = "\xef\xbb\xbf"
+		raw = raw[3:]
+	}
+
+	before, _, after := splitManagedBlock(raw)
+
+	var block strings.Builder
+	block.WriteString(startMarker + "\n")
+	for _, d := range domains {
+		block.WriteString(fmt.Sprintf("127.0.0.1 %s\n", d))
+	}
+	block.WriteString(endMarker + "\n")
+
+	newContent := bom + before + block.String() + after
+
+	// Try direct write first (may work depending on WSL mount permissions)
+	if err := os.WriteFile(windowsHostsPath, []byte(newContent), 0644); err == nil {
+		return nil
+	}
+
+	// Fall back to PowerShell with elevation
+	return writeWindowsHostsElevated(newContent)
+}
+
+// writeWindowsHostsElevated writes content to the Windows hosts file using
+// an elevated PowerShell process (triggers UAC prompt).
+// It uses -EncodedCommand to avoid temp files and path/quoting issues.
+func writeWindowsHostsElevated(content string) error {
+	// Build the PowerShell script that writes the hosts file
+	contentB64 := base64.StdEncoding.EncodeToString([]byte(content))
+	psScript := fmt.Sprintf(
+		"[IO.File]::WriteAllBytes('C:\\Windows\\System32\\drivers\\etc\\hosts',"+
+			"[Convert]::FromBase64String('%s'))",
+		contentB64,
+	)
+
+	// PowerShell -EncodedCommand requires UTF-16LE base64
+	encodedCmd := toEncodedCommand(psScript)
+
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command",
+		fmt.Sprintf(
+			`Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','%s'`,
+			encodedCmd,
+		),
+	)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// toEncodedCommand converts a PowerShell script string to the base64-encoded
+// UTF-16LE format required by PowerShell's -EncodedCommand parameter.
+func toEncodedCommand(script string) string {
+	runes := utf16.Encode([]rune(script))
+	buf := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		binary.LittleEndian.PutUint16(buf[i*2:], r)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
 }

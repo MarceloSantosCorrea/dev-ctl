@@ -3,6 +3,11 @@ display_name: PHP-FPM
 category: runtime
 description: PHP FastCGI Process Manager
 default_image: "php:8.3-fpm"
+dockerfile: |
+  RUN apt-get update && apt-get install -y \
+      libzip-dev libpng-dev libonig-dev libxml2-dev libcurl4-openssl-dev unzip \
+      && docker-php-ext-install pdo pdo_mysql zip gd mbstring xml curl bcmath opcache \
+      && apt-get clean && rm -rf /var/lib/apt/lists/*
 ports:
   - internal: 9000
     protocol: tcp

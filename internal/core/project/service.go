@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -52,13 +53,13 @@ type Svc struct {
 	Enabled        bool                   `json:"enabled"`
 	Config         map[string]interface{} `json:"config"`
 	CreatedAt      time.Time              `json:"created_at"`
-	Ports          []ports.PortAllocation  `json:"ports,omitempty"`
-	ConnectionInfo map[string]string       `json:"connection_info,omitempty"`
+	Ports          []ports.PortAllocation `json:"ports,omitempty"`
+	ConnectionInfo map[string]string      `json:"connection_info,omitempty"`
 }
 
 type CreateProjectInput struct {
-	Name     string              `json:"name"`
-	Path     string              `json:"path"`
+	Name     string               `json:"name"`
+	Path     string               `json:"path"`
 	Services []CreateServiceInput `json:"services"`
 }
 
@@ -264,8 +265,13 @@ func (s *Service) ProjectUp(ctx context.Context, id string) error {
 		return err
 	}
 
+	projectDir := filepath.Join(s.cfg.DataDir, "projects", p.Name)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return err
+	}
+
 	// Load templates and build compose specs
-	specs, err := s.buildComposeSpecs(ctx, p)
+	specs, err := s.buildComposeSpecs(ctx, p, projectDir)
 	if err != nil {
 		return fmt.Errorf("building compose specs: %w", err)
 	}
@@ -274,11 +280,6 @@ func (s *Service) ProjectUp(ctx context.Context, id string) error {
 	composeData, err := docker.GenerateCompose(p.Name, specs)
 	if err != nil {
 		return fmt.Errorf("generating compose: %w", err)
-	}
-
-	projectDir := filepath.Join(s.cfg.DataDir, "projects", p.Name)
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
-		return err
 	}
 
 	composePath := filepath.Join(projectDir, "docker-compose.yml")
@@ -461,8 +462,9 @@ func (s *Service) getService(ctx context.Context, serviceID string) (*Svc, error
 	return &svc, nil
 }
 
-func (s *Service) buildComposeSpecs(ctx context.Context, p *Project) ([]docker.ServiceSpec, error) {
+func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir string) ([]docker.ServiceSpec, error) {
 	var specs []docker.ServiceSpec
+	phpUpstream, phpMountPath, hasPHP := s.findEnabledPHPFPM(p.Services)
 
 	for _, svc := range p.Services {
 		if !svc.Enabled {
@@ -506,6 +508,24 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project) ([]docker.S
 			}
 			volName := fmt.Sprintf("devctl-%s-%s-data", p.Name, svc.Name)
 			volumes = append(volumes, fmt.Sprintf("%s:%s", volName, vol.Target))
+		}
+		if svc.TemplateName == "nginx" {
+			nginxMountPath := tmpl.MountProjectPath
+			if nginxMountPath == "" {
+				nginxMountPath = "/usr/share/nginx/html"
+			}
+
+			docRoot := s.resolveNginxDocumentRoot(p.Path, nginxMountPath, svc.Config)
+			phpScriptRoot := phpMountPath
+			if hasPHP {
+				phpScriptRoot = mapContainerRoot(docRoot, nginxMountPath, phpMountPath)
+			}
+
+			confPath, err := s.writeNginxConfig(projectDir, svc.Name, docRoot, phpUpstream, phpScriptRoot)
+			if err != nil {
+				return nil, fmt.Errorf("writing nginx config for %s: %w", svc.Name, err)
+			}
+			volumes = append(volumes, fmt.Sprintf("%s:/etc/nginx/conf.d/default.conf:ro", confPath))
 		}
 
 		// Allocate ports (reuse existing allocations)
@@ -553,19 +573,149 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project) ([]docker.S
 
 		isWeb := tmpl.Category == "web" || tmpl.Category == "proxy"
 
+		var dockerfilePath string
+		if tmpl.Dockerfile != "" {
+			var err error
+			dockerfilePath, err = s.writeDockerfile(projectDir, svc.Name, img, tmpl.Dockerfile)
+			if err != nil {
+				return nil, fmt.Errorf("writing Dockerfile for %s: %w", svc.Name, err)
+			}
+		}
+
 		specs = append(specs, docker.ServiceSpec{
-			Name:          svc.Name,
-			Image:         img,
-			InternalPorts: portMappings,
-			Environment:   env,
-			Volumes:       volumes,
-			Healthcheck:   hc,
-			IsWebEntry:    isWeb,
-			Domain:        p.Domain,
+			Name:           svc.Name,
+			Image:          img,
+			DockerfilePath: dockerfilePath,
+			InternalPorts:  portMappings,
+			Environment:    env,
+			Volumes:        volumes,
+			Healthcheck:    hc,
+			IsWebEntry:     isWeb,
+			Domain:         p.Domain,
 		})
 	}
 
 	return specs, nil
+}
+
+func (s *Service) findEnabledPHPFPM(services []Svc) (string, string, bool) {
+	for _, svc := range services {
+		if !svc.Enabled || svc.TemplateName != "php-fpm" {
+			continue
+		}
+
+		tmpl, err := LoadTemplate(s.templateDir, svc.TemplateName)
+		if err != nil {
+			continue
+		}
+
+		phpMountPath := tmpl.MountProjectPath
+		if phpMountPath == "" {
+			phpMountPath = "/var/www/html"
+		}
+
+		return svc.Name + ":9000", path.Clean(phpMountPath), true
+	}
+
+	return "", "", false
+}
+
+func (s *Service) resolveNginxDocumentRoot(projectPath, nginxMountPath string, svcConfig map[string]interface{}) string {
+	baseRoot := path.Clean(nginxMountPath)
+	if baseRoot == "." || baseRoot == "/" {
+		baseRoot = "/usr/share/nginx/html"
+	}
+
+	if override, ok := svcConfig["document_root"]; ok {
+		val := strings.TrimSpace(fmt.Sprintf("%v", override))
+		if val != "" {
+			if strings.HasPrefix(val, "/") {
+				return path.Clean(val)
+			}
+			return path.Clean(path.Join(baseRoot, val))
+		}
+	}
+
+	return baseRoot
+}
+
+func mapContainerRoot(documentRoot, fromBase, toBase string) string {
+	doc := path.Clean(documentRoot)
+	from := path.Clean(fromBase)
+	to := path.Clean(toBase)
+
+	if doc == from {
+		return to
+	}
+	if strings.HasPrefix(doc, from+"/") {
+		suffix := strings.TrimPrefix(doc, from+"/")
+		return path.Clean(path.Join(to, suffix))
+	}
+	return to
+}
+
+func (s *Service) writeNginxConfig(projectDir, serviceName, docRoot, phpUpstream, phpScriptRoot string) (string, error) {
+	nginxDir := filepath.Join(projectDir, "nginx")
+	if err := os.MkdirAll(nginxDir, 0755); err != nil {
+		return "", err
+	}
+
+	safeName := strings.NewReplacer("/", "-", "\\", "-", " ", "-").Replace(serviceName)
+	confPath := filepath.Join(nginxDir, safeName+"-default.conf")
+	conf := buildNginxConfig(docRoot, phpUpstream, phpScriptRoot)
+
+	if err := os.WriteFile(confPath, []byte(conf), 0644); err != nil {
+		return "", err
+	}
+	return confPath, nil
+}
+
+func (s *Service) writeDockerfile(projectDir, serviceName, baseImage, instructions string) (string, error) {
+	dfPath := filepath.Join(projectDir, "Dockerfile."+serviceName)
+	content := fmt.Sprintf("FROM %s\n%s\n", baseImage, instructions)
+	return dfPath, os.WriteFile(dfPath, []byte(content), 0644)
+}
+
+func buildNginxConfig(docRoot, phpUpstream, phpScriptRoot string) string {
+	root := path.Clean(docRoot)
+	if phpUpstream == "" {
+		return fmt.Sprintf(`server {
+    listen 80;
+    server_name localhost;
+    root %s;
+    index index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+`, root)
+	}
+
+	scriptRoot := path.Clean(phpScriptRoot)
+	return fmt.Sprintf(`server {
+    listen 80;
+    server_name localhost;
+    root %s;
+    index index.php index.html index.htm;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME %s$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT %s;
+        fastcgi_pass %s;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+`, root, scriptRoot, root, phpUpstream)
 }
 
 func (s *Service) updateStatus(ctx context.Context, id, status string) {

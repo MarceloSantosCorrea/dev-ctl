@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -17,8 +18,14 @@ type ComposeFile struct {
 
 type ComposeVolumeConfig struct {}
 
+type ComposeBuild struct {
+	Context    string `yaml:"context"`
+	Dockerfile string `yaml:"dockerfile"`
+}
+
 type ComposeService struct {
-	Image       string            `yaml:"image"`
+	Build       *ComposeBuild     `yaml:"build,omitempty"`
+	Image       string            `yaml:"image,omitempty"`
 	ContainerName string          `yaml:"container_name"`
 	Ports       []string          `yaml:"ports,omitempty"`
 	Environment map[string]string `yaml:"environment,omitempty"`
@@ -43,14 +50,15 @@ type ComposeNetwork struct {
 
 // ServiceSpec describes a service to include in the compose file.
 type ServiceSpec struct {
-	Name          string
-	Image         string
-	InternalPorts []PortMapping
-	Environment   map[string]string
-	Volumes       []string
-	Healthcheck   *Healthcheck
-	IsWebEntry    bool   // If true, gets Traefik labels
-	Domain        string // Only used if IsWebEntry
+	Name           string
+	Image          string
+	DockerfilePath string // If set, use build instead of image
+	InternalPorts  []PortMapping
+	Environment    map[string]string
+	Volumes        []string
+	Healthcheck    *Healthcheck
+	IsWebEntry     bool   // If true, gets Traefik labels
+	Domain         string // Only used if IsWebEntry
 }
 
 type PortMapping struct {
@@ -75,13 +83,21 @@ func GenerateCompose(projectName string, services []ServiceSpec) ([]byte, error)
 
 	for _, spec := range services {
 		svc := ComposeService{
-			Image:         spec.Image,
 			ContainerName: fmt.Sprintf("devctl-%s-%s", projectName, spec.Name),
 			Environment:   spec.Environment,
 			Volumes:       spec.Volumes,
 			Healthcheck:   spec.Healthcheck,
 			Restart:       "unless-stopped",
 			Networks:      []string{"default"},
+		}
+
+		if spec.DockerfilePath != "" {
+			svc.Build = &ComposeBuild{
+				Context:    filepath.Dir(spec.DockerfilePath),
+				Dockerfile: filepath.Base(spec.DockerfilePath),
+			}
+		} else {
+			svc.Image = spec.Image
 		}
 
 		for _, p := range spec.InternalPorts {

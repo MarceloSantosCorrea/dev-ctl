@@ -1,11 +1,19 @@
 package commands
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"unicode/utf16"
 
 	"github.com/spf13/cobra"
 
@@ -44,7 +52,18 @@ var initCmd = &cobra.Command{
 			fmt.Println("done")
 		}
 
-		// 2. Install mkcert CA
+		// 2. Install mkcert if not present
+		if !ssl.IsMkcertInstalled() {
+			fmt.Print("Installing mkcert... ")
+			if err := installMkcert(); err != nil {
+				fmt.Printf("failed: %v\n", err)
+				fmt.Println("  HTTPS certificates will not be generated. Install mkcert manually: https://github.com/FiloSottile/mkcert")
+			} else {
+				fmt.Println("done")
+			}
+		}
+
+		// 3. Install mkcert CA and generate dashboard cert
 		if ssl.IsMkcertInstalled() {
 			fmt.Print("Installing mkcert CA... ")
 			sslMgr := ssl.NewManager(cfg.CertsDir)
@@ -54,6 +73,22 @@ var initCmd = &cobra.Command{
 				fmt.Println("done")
 			}
 
+			// WSL: browsers run on Windows, so the CA must be trusted there too
+			if isWSL() {
+				caRoot := getMkcertCARoot()
+				if caRoot != "" {
+					fmt.Print("Installing mkcert CA on Windows (UAC prompt)... ")
+					if err := installCAOnWindows(caRoot); err != nil {
+						fmt.Printf("skipped: %v\n", err)
+						fmt.Println("  You can install it manually in PowerShell (Admin):")
+						fmt.Printf("    wsl -d %s cat %s/rootCA.pem > %%TEMP%%\\\\rootCA.pem\n", getWSLDistro(), caRoot)
+						fmt.Println("    certutil -addstore Root %TEMP%\\rootCA.pem")
+					} else {
+						fmt.Println("done")
+					}
+				}
+			}
+
 			// Generate cert for devctl dashboard
 			fmt.Print("Generating certificate for devctl.local... ")
 			if _, _, err := sslMgr.GenerateCert("devctl.local"); err != nil {
@@ -61,8 +96,6 @@ var initCmd = &cobra.Command{
 			} else {
 				fmt.Println("done")
 			}
-		} else {
-			fmt.Println("Warning: mkcert not found. Install it for HTTPS support: https://github.com/FiloSottile/mkcert")
 		}
 
 		// 3. Create Docker client
@@ -92,7 +125,15 @@ var initCmd = &cobra.Command{
 		}
 		fmt.Println("done")
 
-		// 6. Add devctl.local to /etc/hosts
+		// 6. Configure passwordless sudo for /etc/hosts editing
+		fmt.Print("Configuring sudo for /etc/hosts management... ")
+		if err := configureSudoersForHosts(); err != nil {
+			fmt.Printf("skipped: %v\n", err)
+		} else {
+			fmt.Println("done")
+		}
+
+		// 7. Add devctl.local to /etc/hosts
 		fmt.Print("Adding devctl.local to /etc/hosts... ")
 		hostsMgr := hosts.NewManager()
 		if err := hostsMgr.AddDomain("devctl.local"); err != nil {
@@ -165,4 +206,132 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func isWSL() bool {
+	data, err := os.ReadFile("/proc/version")
+	if err != nil {
+		return false
+	}
+	lower := bytes.ToLower(data)
+	return bytes.Contains(lower, []byte("microsoft")) || bytes.Contains(lower, []byte("wsl"))
+}
+
+func getWSLDistro() string {
+	if d := os.Getenv("WSL_DISTRO_NAME"); d != "" {
+		return d
+	}
+	return "Ubuntu"
+}
+
+func getMkcertCARoot() string {
+	out, err := exec.Command("mkcert", "-CAROOT").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// installMkcert installs mkcert using the system package manager or direct download.
+func installMkcert() error {
+	// Try apt (Debian/Ubuntu)
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		cmd := exec.Command("sudo", "apt-get", "update", "-qq")
+		cmd.Stderr = os.Stderr
+		_ = cmd.Run()
+
+		cmd = exec.Command("sudo", "apt-get", "install", "-y", "-qq", "mkcert")
+		cmd.Stderr = os.Stderr
+		if cmd.Run() == nil {
+			return nil
+		}
+	}
+
+	// Fallback: download binary from GitHub
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "amd64"
+	} else if arch == "arm64" {
+		arch = "arm64"
+	}
+	url := fmt.Sprintf("https://github.com/FiloSottile/mkcert/releases/latest/download/mkcert-v1.4.4-linux-%s", arch)
+	dest := "/usr/local/bin/mkcert"
+
+	cmd := exec.Command("sudo", "sh", "-c", fmt.Sprintf("curl -fsSL %s -o %s && chmod +x %s", url, dest, dest))
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// installCAOnWindows installs the mkcert root CA into the Windows certificate
+// store using an elevated PowerShell process (triggers UAC prompt).
+func installCAOnWindows(caRoot string) error {
+	caPEM, err := os.ReadFile(filepath.Join(caRoot, "rootCA.pem"))
+	if err != nil {
+		return fmt.Errorf("reading CA cert: %w", err)
+	}
+
+	pemB64 := base64.StdEncoding.EncodeToString(caPEM)
+
+	// PowerShell script: decode the PEM to a temp file, import it, clean up
+	psScript := fmt.Sprintf(
+		"$bytes = [Convert]::FromBase64String('%s'); "+
+			"$tmp = [IO.Path]::GetTempFileName() + '.pem'; "+
+			"[IO.File]::WriteAllBytes($tmp, $bytes); "+
+			"certutil -addstore Root $tmp; "+
+			"Remove-Item $tmp",
+		pemB64,
+	)
+
+	encodedCmd := psToEncodedCommand(psScript)
+
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-Command",
+		fmt.Sprintf(
+			`Start-Process powershell -Verb RunAs -Wait -ArgumentList '-NoProfile','-EncodedCommand','%s'`,
+			encodedCmd,
+		),
+	)
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// psToEncodedCommand converts a PowerShell script to base64-encoded UTF-16LE
+// for use with PowerShell's -EncodedCommand parameter.
+func psToEncodedCommand(script string) string {
+	runes := utf16.Encode([]rune(script))
+	buf := make([]byte, len(runes)*2)
+	for i, r := range runes {
+		binary.LittleEndian.PutUint16(buf[i*2:], r)
+	}
+	return base64.StdEncoding.EncodeToString(buf)
+}
+
+// configureSudoersForHosts creates a sudoers drop-in rule so devctl can
+// edit /etc/hosts without a password prompt (needed when running as a service).
+func configureSudoersForHosts() error {
+	u, err := user.Current()
+	if err != nil {
+		return err
+	}
+
+	rule := fmt.Sprintf("%s ALL=(ALL) NOPASSWD: /usr/bin/tee /etc/hosts\n", u.Username)
+	sudoersFile := "/etc/sudoers.d/devctl-hosts"
+
+	// Check if already configured
+	existing, _ := os.ReadFile(sudoersFile)
+	if string(existing) == rule {
+		return nil
+	}
+
+	cmd := exec.Command("sudo", "tee", sudoersFile)
+	cmd.Stdin = bytes.NewBufferString(rule)
+	cmd.Stdout = nil
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// sudoers files must be 0440
+	chmodCmd := exec.Command("sudo", "chmod", "0440", sudoersFile)
+	chmodCmd.Stderr = os.Stderr
+	return chmodCmd.Run()
 }

@@ -62,6 +62,25 @@ export default function NewProject() {
     setSelectedServices(selectedServices.filter((_, i) => i !== index))
   }
 
+  const updateServiceConfig = (
+    templateName: string,
+    updater: (currentConfig: Record<string, unknown>) => Record<string, unknown>
+  ) => {
+    setSelectedServices((prev) =>
+      prev.map((svc) =>
+        svc.template_name === templateName
+          ? { ...svc, config: updater(svc.config || {}) }
+          : svc
+      )
+    )
+  }
+
+  const nginxService = selectedServices.find((s) => s.template_name === 'nginx')
+  const nginxDocumentRoot =
+    typeof nginxService?.config?.document_root === 'string'
+      ? (nginxService.config.document_root as string)
+      : ''
+
   const isServiceSelected = (name: string) =>
     selectedServices.some((s) => s.template_name === name)
 
@@ -155,6 +174,35 @@ export default function NewProject() {
             </div>
           )}
 
+          {nginxService && (
+            <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
+              <h3 className="text-sm font-medium text-slate-800 mb-2">Nginx Options</h3>
+              <label className="block text-sm text-slate-700 mb-1">Document Root (optional)</label>
+              <input
+                type="text"
+                value={nginxDocumentRoot}
+                onChange={(e) => {
+                  const value = e.target.value.trim()
+                  updateServiceConfig('nginx', (currentConfig) => {
+                    const nextConfig = { ...currentConfig }
+                    if (value) {
+                      nextConfig.document_root = value
+                    } else {
+                      delete nextConfig.document_root
+                    }
+                    return nextConfig
+                  })
+                }}
+                placeholder="public"
+                className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <p className="mt-2 text-xs text-slate-500">
+                Relative value (ex.: <span className="font-mono">public</span>) usa o diretório montado no
+                container. Caminho absoluto também é aceito.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             {templates?.map((tmpl) => (
               <button
@@ -234,6 +282,12 @@ export default function NewProject() {
                 </div>
               </dd>
             </div>
+            {nginxDocumentRoot && (
+              <div className="py-3 flex justify-between">
+                <dt className="text-sm font-medium text-slate-500">Nginx Document Root</dt>
+                <dd className="text-sm text-slate-900 font-mono">{nginxDocumentRoot}</dd>
+              </div>
+            )}
           </dl>
 
           {createMutation.error && (

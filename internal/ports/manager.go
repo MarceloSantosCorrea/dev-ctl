@@ -154,7 +154,19 @@ func (m *Manager) saveAllocation(serviceID string, internalPort, externalPort in
 	return err
 }
 
+// browserUnsafePorts lists ports that Chromium-based browsers refuse to connect to.
+// https://chromium.googlesource.com/chromium/src/+/refs/heads/main/net/base/port_util.cc
+var browserUnsafePorts = map[int]bool{
+	10080: true, // Amanda
+	6566:  true, // SANE
+	6665:  true, 6666: true, 6667: true, 6668: true, 6669: true, // IRC
+	6697: true, // IRC+TLS
+}
+
 func isPortAvailable(port int, protocol string) bool {
+	if browserUnsafePorts[port] {
+		return false
+	}
 	addr := fmt.Sprintf(":%d", port)
 	ln, err := net.Listen(protocol, addr)
 	if err != nil {

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -12,6 +13,15 @@ export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+  useEffect(() => {
+    if (!toast) {
+      return
+    }
+    const timer = window.setTimeout(() => setToast(null), 3000)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   const { data: project, isLoading, error } = useQuery({
     queryKey: ['project', id],
@@ -48,6 +58,21 @@ export default function ProjectDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
   })
 
+  const updateServiceMutation = useMutation({
+    mutationFn: (payload: { serviceId: string; name: string; config: Record<string, unknown> }) =>
+      api.updateService(id!, payload.serviceId, { name: payload.name, config: payload.config }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] })
+      setToast({ type: 'success', message: 'Nginx document root updated.' })
+    },
+    onError: (err) => {
+      setToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to update nginx document root.',
+      })
+    },
+  })
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -75,6 +100,20 @@ export default function ProjectDetail() {
 
   return (
     <div>
+      {toast && (
+        <div className="fixed top-4 right-4 z-50">
+          <div
+            className={`px-4 py-2 rounded-md shadow-md text-sm font-medium ${
+              toast.type === 'success'
+                ? 'bg-green-600 text-white'
+                : 'bg-red-600 text-white'
+            }`}
+          >
+            {toast.message}
+          </div>
+        </div>
+      )}
+
       {/* Back link */}
       <button
         onClick={() => navigate('/')}
@@ -167,6 +206,22 @@ export default function ProjectDetail() {
                     deleteServiceMutation.mutate(svc.id)
                   }
                 }}
+                onUpdateDocumentRoot={(documentRoot) => {
+                  const nextConfig = { ...(svc.config || {}) }
+                  const trimmed = documentRoot.trim()
+                  if (trimmed) {
+                    nextConfig.document_root = trimmed
+                  } else {
+                    delete nextConfig.document_root
+                  }
+
+                  updateServiceMutation.mutate({
+                    serviceId: svc.id,
+                    name: svc.name,
+                    config: nextConfig,
+                  })
+                }}
+                isUpdatingDocumentRoot={updateServiceMutation.isPending}
               />
             ))}
             {(!project.services || project.services.length === 0) && (

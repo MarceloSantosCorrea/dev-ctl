@@ -15,6 +15,7 @@ type Template struct {
 	Category         string                    `yaml:"category" json:"category"`
 	Description      string                    `yaml:"description" json:"description"`
 	DefaultImage     string                    `yaml:"default_image" json:"default_image"`
+	Dockerfile       string                    `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
 	Ports            []TemplatePort            `yaml:"ports" json:"ports"`
 	Environment      map[string]TemplateEnvVar `yaml:"environment" json:"environment"`
 	Volumes          []TemplateVolume          `yaml:"volumes" json:"volumes"`

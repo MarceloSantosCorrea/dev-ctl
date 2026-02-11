@@ -86,7 +86,7 @@ export default function NewProject() {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">New Project</h1>
+      <h1 className="text-2xl font-bold text-slate-900 mb-6">Novo Projeto</h1>
 
       {/* Steps indicator */}
       <div className="flex items-center gap-2 mb-8">
@@ -105,7 +105,7 @@ export default function NewProject() {
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              {s === 'name' ? '1. Name' : s === 'services' ? '2. Services' : '3. Review'}
+              {s === 'name' ? '1. Nome' : s === 'services' ? '2. Serviços' : '3. Revisão'}
             </button>
           </div>
         ))}
@@ -114,19 +114,19 @@ export default function NewProject() {
       {/* Step: Name */}
       {step === 'name' && (
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-lg font-medium text-slate-900 mb-4">Project Name</h2>
+          <h2 className="text-lg font-medium text-slate-900 mb-4">Nome do Projeto</h2>
           <input
             type="text"
             value={projectName}
             onChange={(e) => setProjectName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-            placeholder="my-project"
+            placeholder="meu-projeto"
             className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="mt-2 text-sm text-slate-500">
-            Domain: <span className="font-medium">{projectName || '...'}.local</span>
+            Domínio: <span className="font-medium">{projectName || '...'}.local</span>
           </p>
 
-          <h2 className="text-lg font-medium text-slate-900 mt-6 mb-4">Project Path</h2>
+          <h2 className="text-lg font-medium text-slate-900 mt-6 mb-4">Caminho do Projeto</h2>
           <input
             type="text"
             value={projectPath}
@@ -135,14 +135,14 @@ export default function NewProject() {
             className="w-full px-4 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <p className="mt-2 text-sm text-slate-500">
-            Local directory with your source code. Will be mounted in web/runtime containers.
+            Diretório local com seu código-fonte. Será montado nos containers web/runtime.
           </p>
           <button
             onClick={() => setStep('services')}
             disabled={!projectName}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium border-0 cursor-pointer hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Next
+            Próximo
           </button>
         </div>
       )}
@@ -150,11 +150,11 @@ export default function NewProject() {
       {/* Step: Services */}
       {step === 'services' && (
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-lg font-medium text-slate-900 mb-4">Select Services</h2>
+          <h2 className="text-lg font-medium text-slate-900 mb-4">Selecionar Serviços</h2>
 
           {selectedServices.length > 0 && (
             <div className="mb-4">
-              <h3 className="text-sm font-medium text-slate-700 mb-2">Selected:</h3>
+              <h3 className="text-sm font-medium text-slate-700 mb-2">Selecionados:</h3>
               <div className="flex flex-wrap gap-2">
                 {selectedServices.map((svc, i) => (
                   <span
@@ -176,8 +176,8 @@ export default function NewProject() {
 
           {nginxService && (
             <div className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
-              <h3 className="text-sm font-medium text-slate-800 mb-2">Nginx Options</h3>
-              <label className="block text-sm text-slate-700 mb-1">Document Root (optional)</label>
+              <h3 className="text-sm font-medium text-slate-800 mb-2">Opções do Nginx</h3>
+              <label className="block text-sm text-slate-700 mb-1">Document Root (opcional)</label>
               <input
                 type="text"
                 value={nginxDocumentRoot}
@@ -225,7 +225,7 @@ export default function NewProject() {
                 </span>
               </button>
             )) || (
-              <p className="text-slate-500 col-span-2">No templates available</p>
+              <p className="text-slate-500 col-span-2">Nenhum template disponível</p>
             )}
           </div>
 
@@ -234,14 +234,14 @@ export default function NewProject() {
               onClick={() => setStep('name')}
               className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium border-0 cursor-pointer hover:bg-slate-200"
             >
-              Back
+              Voltar
             </button>
             <button
               onClick={() => setStep('review')}
               disabled={selectedServices.length === 0}
               className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium border-0 cursor-pointer hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Next
+              Próximo
             </button>
           </div>
         </div>
@@ -250,25 +250,25 @@ export default function NewProject() {
       {/* Step: Review */}
       {step === 'review' && (
         <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-lg font-medium text-slate-900 mb-4">Review</h2>
+          <h2 className="text-lg font-medium text-slate-900 mb-4">Revisão</h2>
 
           <dl className="divide-y divide-slate-100">
             <div className="py-3 flex justify-between">
-              <dt className="text-sm font-medium text-slate-500">Project Name</dt>
+              <dt className="text-sm font-medium text-slate-500">Nome do Projeto</dt>
               <dd className="text-sm text-slate-900">{projectName}</dd>
             </div>
             <div className="py-3 flex justify-between">
-              <dt className="text-sm font-medium text-slate-500">Domain</dt>
+              <dt className="text-sm font-medium text-slate-500">Domínio</dt>
               <dd className="text-sm text-blue-600">{projectName}.local</dd>
             </div>
             {projectPath && (
               <div className="py-3 flex justify-between">
-                <dt className="text-sm font-medium text-slate-500">Path</dt>
+                <dt className="text-sm font-medium text-slate-500">Caminho</dt>
                 <dd className="text-sm text-slate-900 font-mono">{projectPath}</dd>
               </div>
             )}
             <div className="py-3">
-              <dt className="text-sm font-medium text-slate-500 mb-2">Services</dt>
+              <dt className="text-sm font-medium text-slate-500 mb-2">Serviços</dt>
               <dd>
                 <div className="flex flex-wrap gap-2">
                   {selectedServices.map((svc, i) => (
@@ -301,7 +301,7 @@ export default function NewProject() {
               onClick={() => setStep('services')}
               className="px-4 py-2 bg-slate-100 text-slate-700 rounded-md text-sm font-medium border-0 cursor-pointer hover:bg-slate-200"
             >
-              Back
+              Voltar
             </button>
             <button
               onClick={() => createMutation.mutate()}
@@ -313,7 +313,7 @@ export default function NewProject() {
               ) : (
                 <Plus className="w-4 h-4" />
               )}
-              Create Project
+              Criar Projeto
             </button>
           </div>
         </div>

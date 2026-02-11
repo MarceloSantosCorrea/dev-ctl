@@ -47,7 +47,7 @@ export default function LogViewer({ projectId }: LogViewerProps) {
         </div>
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-slate-500'}`} />
-          <span className="text-xs text-slate-400">{connected ? 'Connected' : 'Disconnected'}</span>
+          <span className="text-xs text-slate-400">{connected ? 'Conectado' : 'Desconectado'}</span>
         </div>
       </div>
       <div
@@ -55,7 +55,7 @@ export default function LogViewer({ projectId }: LogViewerProps) {
         className="p-4 h-64 overflow-y-auto font-mono text-xs text-slate-300 leading-5"
       >
         {logs.length === 0 ? (
-          <p className="text-slate-500">No logs available. Start the project to see logs.</p>
+          <p className="text-slate-500">Nenhum log disponível. Inicie o projeto para ver os logs.</p>
         ) : (
           logs.map((line, i) => (
             <div key={i} className="whitespace-pre-wrap break-all">

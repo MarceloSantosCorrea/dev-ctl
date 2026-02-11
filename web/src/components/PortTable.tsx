@@ -6,7 +6,7 @@ interface PortTableProps {
 
 export default function PortTable({ ports }: PortTableProps) {
   if (!ports || ports.length === 0) {
-    return <p className="text-sm text-slate-500">No ports allocated</p>
+    return <p className="text-sm text-slate-500">Nenhuma porta alocada</p>
   }
 
   return (
@@ -14,9 +14,9 @@ export default function PortTable({ ports }: PortTableProps) {
       <table className="min-w-full text-sm">
         <thead>
           <tr className="border-b border-slate-200">
-            <th className="text-left py-2 px-3 font-medium text-slate-600">External Port</th>
-            <th className="text-left py-2 px-3 font-medium text-slate-600">Internal Port</th>
-            <th className="text-left py-2 px-3 font-medium text-slate-600">Protocol</th>
+            <th className="text-left py-2 px-3 font-medium text-slate-600">Porta Externa</th>
+            <th className="text-left py-2 px-3 font-medium text-slate-600">Porta Interna</th>
+            <th className="text-left py-2 px-3 font-medium text-slate-600">Protocolo</th>
           </tr>
         </thead>
         <tbody>

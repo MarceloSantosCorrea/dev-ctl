@@ -30,7 +30,7 @@ function CopyButton({ value }: { value: string }) {
     <button
       onClick={handleCopy}
       className="p-0.5 rounded hover:bg-slate-200 transition-colors border-0 bg-transparent cursor-pointer"
-      title="Copy"
+      title="Copiar"
     >
       {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
     </button>
@@ -74,7 +74,7 @@ export default function ServiceCard({
             <button
               onClick={onToggle}
               className="p-1 rounded hover:bg-slate-100 transition-colors border-0 bg-transparent cursor-pointer"
-              title={service.enabled ? 'Disable' : 'Enable'}
+              title={service.enabled ? 'Desabilitar' : 'Habilitar'}
             >
               {service.enabled ? (
                 <ToggleRight className="w-5 h-5 text-blue-600" />
@@ -87,7 +87,7 @@ export default function ServiceCard({
             <button
               onClick={onDelete}
               className="p-1 rounded hover:bg-red-50 transition-colors border-0 bg-transparent cursor-pointer"
-              title="Remove service"
+              title="Remover serviço"
             >
               <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-500" />
             </button>
@@ -110,7 +110,7 @@ export default function ServiceCard({
 
       {service.connection_info && Object.keys(service.connection_info).length > 0 && (
         <div className="mt-3 border-t border-slate-100 pt-3">
-          <p className="text-xs font-medium text-slate-500 mb-2">Connection Info</p>
+          <p className="text-xs font-medium text-slate-500 mb-2">Informações de Conexão</p>
           <div className="space-y-1">
             {Object.entries(service.connection_info)
               .filter(([key]) => key !== 'connection_string')
@@ -138,14 +138,14 @@ export default function ServiceCard({
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
               <Settings className="w-3.5 h-3.5" />
-              Nginx Options
+              Opções do Nginx
             </p>
             {!editingDocumentRoot && (
               <button
                 onClick={() => setEditingDocumentRoot(true)}
                 className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600 border-0 cursor-pointer hover:bg-slate-200"
               >
-                Edit
+                Editar
               </button>
             )}
           </div>
@@ -154,7 +154,7 @@ export default function ServiceCard({
             <p className="text-xs text-slate-600">
               Document root:{' '}
               <span className="font-mono text-slate-800">
-                {configuredDocumentRoot || '(auto)'}
+                {configuredDocumentRoot || '(padrão)'}
               </span>
             </p>
           ) : (
@@ -167,7 +167,7 @@ export default function ServiceCard({
                 className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <p className="text-[11px] text-slate-500">
-                Deixe vazio para usar detecção automática.
+                Deixe vazio para usar o diretório padrão do container.
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -178,7 +178,7 @@ export default function ServiceCard({
                   disabled={isUpdatingDocumentRoot}
                   className="text-xs px-2 py-1 rounded bg-blue-600 text-white border-0 cursor-pointer hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Save
+                  Salvar
                 </button>
                 <button
                   onClick={() => {
@@ -188,7 +188,7 @@ export default function ServiceCard({
                   disabled={isUpdatingDocumentRoot}
                   className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 border-0 cursor-pointer hover:bg-slate-200 disabled:opacity-50"
                 >
-                  Cancel
+                  Cancelar
                 </button>
               </div>
             </div>

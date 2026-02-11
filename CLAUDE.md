@@ -7,6 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - SEMPRE responder em portugues brasileiro (pt-BR).
 - SEMPRE finalizar as respostas com: **Bora Marcelo !!!**
 
+## Commits
+
+- NUNCA adicione a assinatura da Anthropic no corpo da mensagem de commit.
+
 ## Build & Test Commands
 
 ```bash

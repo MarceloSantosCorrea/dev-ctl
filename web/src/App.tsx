@@ -34,7 +34,7 @@ function App() {
                 className="flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white no-underline hover:bg-blue-700 transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                New Project
+                Novo Projeto
               </Link>
             </nav>
           </div>

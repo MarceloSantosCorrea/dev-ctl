@@ -129,32 +129,43 @@ func (h *ProjectHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logCh := make(chan string, 64)
-
-	// Start streaming logs in background
-	go func() {
-		defer close(logCh)
-		h.svc.StreamLogs(r.Context(), id, logCh)
-	}()
-
 	pingTicker := time.NewTicker(15 * time.Second)
 	defer pingTicker.Stop()
 
 	for {
+		logCh := make(chan string, 64)
+
+		// Start streaming logs in background
+		go func() {
+			defer close(logCh)
+			h.svc.StreamLogs(r.Context(), id, logCh)
+		}()
+
+		// Read from logCh until it closes or client disconnects
+	drain:
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case line, ok := <-logCh:
+				if !ok {
+					// Stream ended — break to outer loop to retry
+					break drain
+				}
+				msg, _ := json.Marshal(map[string]string{"type": "log", "message": line})
+				fmt.Fprintf(w, "data: %s\n\n", msg)
+				flusher.Flush()
+			case <-pingTicker.C:
+				fmt.Fprintf(w, "data: {\"type\":\"ping\"}\n\n")
+				flusher.Flush()
+			}
+		}
+
+		// Wait before retrying so we don't spin
 		select {
 		case <-r.Context().Done():
 			return
-		case line, ok := <-logCh:
-			if !ok {
-				// Stream ended (all containers stopped or error)
-				return
-			}
-			msg, _ := json.Marshal(map[string]string{"type": "log", "message": line})
-			fmt.Fprintf(w, "data: %s\n\n", msg)
-			flusher.Flush()
-		case <-pingTicker.C:
-			fmt.Fprintf(w, "data: {\"type\":\"ping\"}\n\n")
-			flusher.Flush()
+		case <-time.After(3 * time.Second):
 		}
 	}
 }

@@ -822,11 +822,13 @@ func (s *Service) hasWebServiceFromSvcs(services []Svc) bool {
 func (s *Service) StreamLogs(ctx context.Context, projectID string, out chan<- string) error {
 	p, err := s.GetProject(ctx, projectID)
 	if err != nil {
+		out <- fmt.Sprintf("Erro ao buscar projeto: %v", err)
 		return fmt.Errorf("fetching project: %w", err)
 	}
 
 	containers, err := s.dockerCli.ListProjectContainers(ctx, p.Name)
 	if err != nil {
+		out <- fmt.Sprintf("Erro ao listar containers: %v", err)
 		return fmt.Errorf("listing containers: %w", err)
 	}
 
@@ -838,7 +840,8 @@ func (s *Service) StreamLogs(ctx context.Context, projectID string, out chan<- s
 		}
 	}
 	if len(running) == 0 {
-		return fmt.Errorf("no running containers")
+		out <- "Aguardando containers..."
+		return nil
 	}
 
 	var wg sync.WaitGroup
@@ -857,8 +860,12 @@ func (s *Service) StreamLogs(ctx context.Context, projectID string, out chan<- s
 // streamContainerLogs reads the Docker multiplexed log stream for a single container
 // and sends prefixed lines to out.
 func (s *Service) streamContainerLogs(ctx context.Context, ctr docker.ContainerStatus, projectName string, out chan<- string) {
-	reader, err := s.dockerCli.GetContainerLogs(ctx, ctr.ID, true)
+	reader, err := s.dockerCli.GetContainerLogs(ctx, ctr.Name, true)
 	if err != nil {
+		select {
+		case <-ctx.Done():
+		case out <- fmt.Sprintf("[%s] Erro ao obter logs: %v", ctr.Name, err):
+		}
 		return
 	}
 	defer reader.Close()

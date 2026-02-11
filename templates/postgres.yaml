@@ -1,0 +1,31 @@
+name: postgres
+display_name: PostgreSQL
+category: database
+description: PostgreSQL relational database
+default_image: "postgres:16-alpine"
+ports:
+  - internal: 5432
+    protocol: tcp
+    description: PostgreSQL server
+environment:
+  POSTGRES_PASSWORD:
+    default: "postgres"
+    description: "Superuser password"
+  POSTGRES_DB:
+    default: "app"
+    description: "Default database name"
+volumes:
+  - target: /var/lib/postgresql/data
+    description: "PostgreSQL data"
+connection_info:
+  host: "localhost"
+  port_ref: 5432
+  user: "postgres"
+  password_env: "POSTGRES_PASSWORD"
+  database_env: "POSTGRES_DB"
+  connection_string: "psql -h localhost -p {port} -U {user} -d {database}"
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U postgres"]
+  interval: "10s"
+  timeout: "5s"
+  retries: 3

@@ -1,0 +1,30 @@
+name: mongo
+display_name: MongoDB
+category: database
+description: MongoDB document database
+default_image: "mongo:7"
+ports:
+  - internal: 27017
+    protocol: tcp
+    description: MongoDB server
+environment:
+  MONGO_INITDB_ROOT_USERNAME:
+    default: "root"
+    description: "Root username"
+  MONGO_INITDB_ROOT_PASSWORD:
+    default: "root"
+    description: "Root password"
+volumes:
+  - target: /data/db
+    description: "MongoDB data"
+connection_info:
+  host: "localhost"
+  port_ref: 27017
+  user: "root"
+  password_env: "MONGO_INITDB_ROOT_PASSWORD"
+  connection_string: "mongodb://{user}:{password}@localhost:{port}"
+healthcheck:
+  test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+  interval: "10s"
+  timeout: "5s"
+  retries: 3

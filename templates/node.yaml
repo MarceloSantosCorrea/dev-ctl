@@ -1,0 +1,17 @@
+name: node
+display_name: Node.js
+category: runtime
+description: Node.js JavaScript runtime
+default_image: "node:22-alpine"
+ports:
+  - internal: 3000
+    protocol: tcp
+    description: Node.js server
+environment:
+  NODE_ENV:
+    default: "development"
+    description: "Node environment"
+mount_project_path: /app
+volumes:
+  - target: /app
+    description: "Application code"

@@ -1,0 +1,17 @@
+name: php-fpm
+display_name: PHP-FPM
+category: runtime
+description: PHP FastCGI Process Manager
+default_image: "php:8.3-fpm"
+ports:
+  - internal: 9000
+    protocol: tcp
+    description: PHP-FPM
+environment:
+  PHP_MEMORY_LIMIT:
+    default: "256M"
+    description: "PHP memory limit"
+mount_project_path: /var/www/html
+volumes:
+  - target: /var/www/html
+    description: "Application code"

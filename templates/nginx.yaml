@@ -1,0 +1,14 @@
+name: nginx
+display_name: Nginx
+category: web
+description: Nginx web server and reverse proxy
+default_image: "nginx:alpine"
+ports:
+  - internal: 80
+    protocol: tcp
+    description: HTTP server
+environment: {}
+mount_project_path: /usr/share/nginx/html
+volumes:
+  - target: /usr/share/nginx/html
+    description: "Web root"

@@ -1,0 +1,31 @@
+name: mysql
+display_name: MySQL
+category: database
+description: MySQL relational database
+default_image: "mysql:8.0"
+ports:
+  - internal: 3306
+    protocol: tcp
+    description: MySQL server
+environment:
+  MYSQL_ROOT_PASSWORD:
+    default: "root"
+    description: "Root password"
+  MYSQL_DATABASE:
+    default: "app"
+    description: "Default database name"
+volumes:
+  - target: /var/lib/mysql
+    description: "MySQL data"
+connection_info:
+  host: "localhost"
+  port_ref: 3306
+  user: "root"
+  password_env: "MYSQL_ROOT_PASSWORD"
+  database_env: "MYSQL_DATABASE"
+  connection_string: "mysql -h localhost -P {port} -u {user} -p{password} {database}"
+healthcheck:
+  test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+  interval: "10s"
+  timeout: "5s"
+  retries: 3

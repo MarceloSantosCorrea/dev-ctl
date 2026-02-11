@@ -1,0 +1,33 @@
+name: rabbitmq
+display_name: RabbitMQ
+category: messaging
+description: RabbitMQ message broker
+default_image: "rabbitmq:3-management-alpine"
+ports:
+  - internal: 5672
+    protocol: tcp
+    description: AMQP
+  - internal: 15672
+    protocol: tcp
+    description: Management UI
+environment:
+  RABBITMQ_DEFAULT_USER:
+    default: "guest"
+    description: "Default user"
+  RABBITMQ_DEFAULT_PASS:
+    default: "guest"
+    description: "Default password"
+volumes:
+  - target: /var/lib/rabbitmq
+    description: "RabbitMQ data"
+connection_info:
+  host: "localhost"
+  port_ref: 5672
+  user: "guest"
+  password_env: "RABBITMQ_DEFAULT_PASS"
+  connection_string: "amqp://{user}:{password}@localhost:{port}"
+healthcheck:
+  test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+  interval: "30s"
+  timeout: "10s"
+  retries: 3

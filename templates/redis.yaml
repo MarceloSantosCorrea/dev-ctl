@@ -1,0 +1,22 @@
+name: redis
+display_name: Redis
+category: cache
+description: Redis in-memory data store
+default_image: "redis:7-alpine"
+ports:
+  - internal: 6379
+    protocol: tcp
+    description: Redis server
+environment: {}
+volumes:
+  - target: /data
+    description: "Redis data"
+connection_info:
+  host: "localhost"
+  port_ref: 6379
+  connection_string: "redis-cli -h localhost -p {port}"
+healthcheck:
+  test: ["CMD", "redis-cli", "ping"]
+  interval: "10s"
+  timeout: "5s"
+  retries: 3

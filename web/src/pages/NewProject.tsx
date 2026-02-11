@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Check, ChevronRight, Loader2, Plus, X } from 'lucide-react'
 import { api, type Template } from '../lib/api'
+import type { ExtraPort } from '../components/ServiceCard'
 
 type Step = 'name' | 'services' | 'review'
 
@@ -236,6 +237,87 @@ export default function NewProject() {
             )
           })}
 
+          {selectedServices.map((svc) => {
+            const extraPorts: ExtraPort[] = Array.isArray(svc.config?.extra_ports)
+              ? (svc.config.extra_ports as ExtraPort[])
+              : []
+            const tmpl = templates?.find((t) => t.name === svc.template_name)
+            return (
+              <div key={`extra-${svc.template_name}`} className="mb-4 p-4 rounded-lg border border-slate-200 bg-slate-50">
+                <h3 className="text-sm font-medium text-slate-800 mb-2">
+                  Portas Extras — {tmpl?.display_name || svc.template_name}
+                </h3>
+                {extraPorts.map((ep, i) => (
+                  <div key={i} className="flex items-center gap-2 mb-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={ep.internal || ''}
+                      onChange={(e) => {
+                        const updated = [...extraPorts]
+                        updated[i] = { ...updated[i], internal: parseInt(e.target.value) || 0 }
+                        updateServiceConfig(svc.template_name, (cfg) => ({ ...cfg, extra_ports: updated }))
+                      }}
+                      placeholder="Porta"
+                      className="w-24 px-2 py-1.5 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <select
+                      value={ep.protocol}
+                      onChange={(e) => {
+                        const updated = [...extraPorts]
+                        updated[i] = { ...updated[i], protocol: e.target.value }
+                        updateServiceConfig(svc.template_name, (cfg) => ({ ...cfg, extra_ports: updated }))
+                      }}
+                      className="px-2 py-1.5 border border-slate-300 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="tcp">tcp</option>
+                      <option value="udp">udp</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={ep.description}
+                      onChange={(e) => {
+                        const updated = [...extraPorts]
+                        updated[i] = { ...updated[i], description: e.target.value }
+                        updateServiceConfig(svc.template_name, (cfg) => ({ ...cfg, extra_ports: updated }))
+                      }}
+                      placeholder="Descrição"
+                      className="flex-1 px-2 py-1.5 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={() => {
+                        const updated = extraPorts.filter((_, j) => j !== i)
+                        updateServiceConfig(svc.template_name, (cfg) => {
+                          const next = { ...cfg }
+                          if (updated.length > 0) {
+                            next.extra_ports = updated
+                          } else {
+                            delete next.extra_ports
+                          }
+                          return next
+                        })
+                      }}
+                      className="p-1 bg-transparent border-0 cursor-pointer rounded hover:bg-red-50"
+                    >
+                      <X className="w-4 h-4 text-slate-400 hover:text-red-500" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const updated = [...extraPorts, { internal: 0, protocol: 'tcp', description: '' }]
+                    updateServiceConfig(svc.template_name, (cfg) => ({ ...cfg, extra_ports: updated }))
+                  }}
+                  className="flex items-center gap-1 text-sm px-3 py-1.5 rounded-md bg-white text-slate-600 border border-dashed border-slate-300 cursor-pointer hover:bg-slate-100"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Adicionar porta
+                </button>
+              </div>
+            )
+          })}
+
           <div className="grid grid-cols-2 gap-3">
             {templates?.map((tmpl) => (
               <button
@@ -330,6 +412,25 @@ export default function NewProject() {
                 <div key={svc.template_name} className="py-3 flex justify-between">
                   <dt className="text-sm font-medium text-slate-500">Versão {tmpl.display_name}</dt>
                   <dd className="text-sm text-slate-900">{version?.label || customImage}</dd>
+                </div>
+              )
+            })}
+            {selectedServices.map((svc) => {
+              const extraPorts = Array.isArray(svc.config?.extra_ports) ? (svc.config.extra_ports as ExtraPort[]) : []
+              if (extraPorts.length === 0) return null
+              const tmpl = templates?.find((t) => t.name === svc.template_name)
+              return (
+                <div key={`review-ep-${svc.template_name}`} className="py-3">
+                  <dt className="text-sm font-medium text-slate-500 mb-1">
+                    Portas Extras — {tmpl?.display_name || svc.template_name}
+                  </dt>
+                  <dd className="flex flex-wrap gap-1">
+                    {extraPorts.map((ep, i) => (
+                      <span key={i} className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-xs font-medium">
+                        {ep.internal}/{ep.protocol}{ep.description ? ` - ${ep.description}` : ''}
+                      </span>
+                    ))}
+                  </dd>
                 </div>
               )
             })}

@@ -1,0 +1,19 @@
+name: mailpit
+display_name: Mailpit
+category: mail
+description: Email testing tool - catches all outgoing emails
+default_image: "axllent/mailpit:latest"
+ports:
+  - internal: 1025
+    protocol: tcp
+    description: SMTP
+  - internal: 8025
+    protocol: tcp
+    description: Web UI
+volumes:
+  - target: /data
+    description: "Mailpit data"
+connection_info:
+  host: "localhost"
+  port_ref: 1025
+  connection_string: "smtp://localhost:{port}"

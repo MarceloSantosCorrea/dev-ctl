@@ -255,6 +255,19 @@ export default function ProjectDetail() {
                   })
                 }}
                 isUpdatingImage={updateServiceMutation.isPending}
+                onUpdateExtraPorts={(extraPorts) => {
+                  const nextConfig = { ...(svc.config || {}) }
+                  if (extraPorts.length > 0) {
+                    nextConfig.extra_ports = extraPorts
+                  } else {
+                    delete nextConfig.extra_ports
+                  }
+                  updateServiceMutation.mutate({
+                    serviceId: svc.id,
+                    name: svc.name,
+                    config: nextConfig,
+                  })
+                }}
               />
             ))}
             {(!project.services || project.services.length === 0) && (

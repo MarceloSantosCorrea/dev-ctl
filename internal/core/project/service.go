@@ -98,7 +98,7 @@ func NewService(
 }
 
 // CreateProject creates a new project with its services, allocates ports, and generates SSL certs.
-func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput) (*Project, error) {
+func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput, userID string) (*Project, error) {
 	projectID := uuid.New().String()
 	domain := input.Name + ".local"
 
@@ -109,8 +109,8 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput) (
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO projects (id, name, domain, path, status) VALUES (?, ?, ?, ?, 'stopped')",
-		projectID, input.Name, domain, input.Path,
+		"INSERT INTO projects (id, name, domain, path, user_id, status) VALUES (?, ?, ?, ?, ?, 'stopped')",
+		projectID, input.Name, domain, input.Path, userID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("inserting project: %w", err)
@@ -161,7 +161,7 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput) (
 		s.refreshTraefikCerts()
 	}
 
-	proj, err := s.GetProject(ctx, projectID)
+	proj, err := s.GetProject(ctx, projectID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +169,27 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput) (
 	return proj, nil
 }
 
-// GetProject returns a project with its services and port allocations.
-func (s *Service) GetProject(ctx context.Context, id string) (*Project, error) {
+// GetProject returns a project with its services and port allocations, filtered by userID.
+func (s *Service) GetProject(ctx context.Context, id string, userID string) (*Project, error) {
+	p := &Project{}
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects WHERE id = ? AND user_id = ?", id, userID,
+	).Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("fetching project: %w", err)
+	}
+
+	svcs, err := s.getProjectServices(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	p.Services = svcs
+
+	return p, nil
+}
+
+// getProjectByID returns a project without user filtering (for internal use).
+func (s *Service) getProjectByID(ctx context.Context, id string) (*Project, error) {
 	p := &Project{}
 	err := s.db.QueryRowContext(ctx,
 		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects WHERE id = ?", id,
@@ -188,10 +207,10 @@ func (s *Service) GetProject(ctx context.Context, id string) (*Project, error) {
 	return p, nil
 }
 
-// ListProjects returns all projects.
-func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
+// ListProjects returns all projects for a given user.
+func (s *Service) ListProjects(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects ORDER BY created_at DESC",
+		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects WHERE user_id = ? ORDER BY created_at DESC", userID,
 	)
 	if err != nil {
 		return nil, err
@@ -212,14 +231,14 @@ func (s *Service) ListProjects(ctx context.Context) ([]Project, error) {
 }
 
 // DeleteProject removes a project and all associated resources.
-func (s *Service) DeleteProject(ctx context.Context, id string) error {
-	p, err := s.GetProject(ctx, id)
+func (s *Service) DeleteProject(ctx context.Context, id string, userID string) error {
+	p, err := s.GetProject(ctx, id, userID)
 	if err != nil {
 		return err
 	}
 
 	// Stop containers first
-	_ = s.ProjectDown(ctx, id)
+	_ = s.projectDown(ctx, id)
 
 	// Release ports for all services
 	for _, svc := range p.Services {
@@ -250,21 +269,21 @@ func (s *Service) DeleteProject(ctx context.Context, id string) error {
 }
 
 // UpdateProject updates a project's mutable fields.
-func (s *Service) UpdateProject(ctx context.Context, id string, name string, path string) (*Project, error) {
+func (s *Service) UpdateProject(ctx context.Context, id string, name string, path string, userID string) (*Project, error) {
 	domain := name + ".local"
 	_, err := s.db.ExecContext(ctx,
-		"UPDATE projects SET name = ?, domain = ?, path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-		name, domain, path, id,
+		"UPDATE projects SET name = ?, domain = ?, path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+		name, domain, path, id, userID,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return s.GetProject(ctx, id)
+	return s.GetProject(ctx, id, userID)
 }
 
 // ProjectUp generates the compose file, allocates ports, and starts all containers.
-func (s *Service) ProjectUp(ctx context.Context, id string) error {
-	p, err := s.GetProject(ctx, id)
+func (s *Service) ProjectUp(ctx context.Context, id string, userID string) error {
+	p, err := s.GetProject(ctx, id, userID)
 	if err != nil {
 		return err
 	}
@@ -307,8 +326,8 @@ func (s *Service) ProjectUp(ctx context.Context, id string) error {
 }
 
 // ProjectDown stops all containers for a project.
-func (s *Service) ProjectDown(ctx context.Context, id string) error {
-	p, err := s.GetProject(ctx, id)
+func (s *Service) ProjectDown(ctx context.Context, id string, userID string) error {
+	p, err := s.GetProject(ctx, id, userID)
 	if err != nil {
 		return err
 	}
@@ -325,6 +344,100 @@ func (s *Service) ProjectDown(ctx context.Context, id string) error {
 	}
 
 	s.updateStatus(ctx, id, "stopped")
+	return nil
+}
+
+// ListAllProjects returns all projects regardless of user (for CLI use).
+func (s *Service) ListAllProjects(ctx context.Context) ([]Project, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects ORDER BY created_at DESC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []Project
+	for rows.Next() {
+		var p Project
+		if err := rows.Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		svcs, _ := s.getProjectServices(ctx, p.ID)
+		p.Services = svcs
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
+// ProjectUpByID starts a project without user filtering (for CLI use).
+func (s *Service) ProjectUpByID(ctx context.Context, id string) error {
+	return s.projectUp(ctx, id)
+}
+
+// ProjectDownByID stops a project without user filtering (for CLI use).
+func (s *Service) ProjectDownByID(ctx context.Context, id string) error {
+	return s.projectDown(ctx, id)
+}
+
+// projectDown stops containers without user filtering (internal use).
+func (s *Service) projectDown(ctx context.Context, id string) error {
+	p, err := s.getProjectByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	composePath := filepath.Join(s.cfg.DataDir, "projects", p.Name, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err != nil {
+		s.updateStatus(ctx, id, "stopped")
+		return nil
+	}
+
+	if err := docker.ComposeDown(ctx, composePath, p.Name); err != nil {
+		return err
+	}
+
+	s.updateStatus(ctx, id, "stopped")
+	return nil
+}
+
+// projectUp starts containers without user filtering (internal use).
+func (s *Service) projectUp(ctx context.Context, id string) error {
+	p, err := s.getProjectByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	projectDir := filepath.Join(s.cfg.DataDir, "projects", p.Name)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return err
+	}
+
+	specs, err := s.buildComposeSpecs(ctx, p, projectDir)
+	if err != nil {
+		return fmt.Errorf("building compose specs: %w", err)
+	}
+
+	composeData, err := docker.GenerateCompose(p.Name, specs)
+	if err != nil {
+		return fmt.Errorf("generating compose: %w", err)
+	}
+
+	composePath := filepath.Join(projectDir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, composeData, 0644); err != nil {
+		return err
+	}
+
+	if err := s.networkMgr.EnsureProxyNetwork(ctx); err != nil {
+		return fmt.Errorf("ensuring proxy network: %w", err)
+	}
+
+	if err := docker.ComposeUp(ctx, composePath, p.Name); err != nil {
+		s.updateStatus(ctx, id, "error")
+		return err
+	}
+
+	s.updateStatus(ctx, id, "running")
 	return nil
 }
 
@@ -352,7 +465,7 @@ func (s *Service) AddService(ctx context.Context, projectID string, input Create
 	// If this is a web service, set up hosts + SSL
 	tmpl, tmplErr := LoadTemplate(s.templateDir, input.TemplateName)
 	if tmplErr == nil && (tmpl.Category == "web" || tmpl.Category == "proxy") {
-		p, pErr := s.GetProject(ctx, projectID)
+		p, pErr := s.getProjectByID(ctx, projectID)
 		if pErr == nil && p != nil {
 			if ssl.IsMkcertInstalled() {
 				s.sslMgr.GenerateCert(p.Domain)
@@ -381,9 +494,9 @@ func (s *Service) UpdateService(ctx context.Context, serviceID string, name stri
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.GetProject(ctx, svc.ProjectID)
+	p, err := s.getProjectByID(ctx, svc.ProjectID)
 	if err == nil && p.Status == "running" {
-		_ = s.ProjectUp(ctx, p.ID)
+		_ = s.projectUp(ctx, p.ID)
 	}
 
 	return s.getService(ctx, serviceID)
@@ -404,7 +517,7 @@ func (s *Service) DeleteService(ctx context.Context, serviceID string) error {
 	if svc != nil {
 		tmpl, _ := LoadTemplate(s.templateDir, svc.TemplateName)
 		if tmpl != nil && (tmpl.Category == "web" || tmpl.Category == "proxy") {
-			p, _ := s.GetProject(ctx, svc.ProjectID)
+			p, _ := s.getProjectByID(ctx, svc.ProjectID)
 			if p != nil && !s.hasWebServiceFromSvcs(p.Services) {
 				s.hostsMgr.RemoveDomain(p.Domain)
 				s.sslMgr.RemoveCert(p.Domain)
@@ -575,6 +688,53 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir 
 			})
 		}
 
+		// Extra ports from service config
+		if rawExtra, ok := svc.Config["extra_ports"]; ok {
+			if extraList, ok := rawExtra.([]interface{}); ok {
+				for _, item := range extraList {
+					ep, ok := item.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					internal := 0
+					switch v := ep["internal"].(type) {
+					case float64:
+						internal = int(v)
+					case int:
+						internal = v
+					case json.Number:
+						if n, err := v.Int64(); err == nil {
+							internal = int(n)
+						}
+					}
+					if internal < 1 || internal > 65535 {
+						continue
+					}
+
+					protocol := "tcp"
+					if p, ok := ep["protocol"].(string); ok && p != "" {
+						protocol = p
+					}
+
+					key := fmt.Sprintf("%d/%s", internal, protocol)
+					extPort, exists := existingByInternal[key]
+					if !exists {
+						var err error
+						extPort, err = s.portMgr.AllocatePort(svc.ID, internal, protocol)
+						if err != nil {
+							return nil, fmt.Errorf("allocating extra port for %s:%d: %w", svc.Name, internal, err)
+						}
+					}
+
+					portMappings = append(portMappings, docker.PortMapping{
+						Internal: internal,
+						External: extPort,
+						Protocol: protocol,
+					})
+				}
+			}
+		}
+
 		// Build healthcheck
 		var hc *docker.Healthcheck
 		if tmpl.Healthcheck != nil {
@@ -615,7 +775,7 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir 
 
 func (s *Service) findEnabledPHPFPM(services []Svc) (string, string, bool) {
 	for _, svc := range services {
-		if !svc.Enabled || svc.TemplateName != "php-fpm" {
+		if !svc.Enabled || (svc.TemplateName != "php-fpm" && svc.TemplateName != "supervisord") {
 			continue
 		}
 
@@ -831,7 +991,7 @@ func (s *Service) hasWebServiceFromSvcs(services []Svc) bool {
 // StreamLogs streams logs from all running containers of a project into out.
 // It blocks until ctx is cancelled (client disconnect). The caller must close out.
 func (s *Service) StreamLogs(ctx context.Context, projectID string, out chan<- string) error {
-	p, err := s.GetProject(ctx, projectID)
+	p, err := s.getProjectByID(ctx, projectID)
 	if err != nil {
 		out <- fmt.Sprintf("Erro ao buscar projeto: %v", err)
 		return fmt.Errorf("fetching project: %w", err)

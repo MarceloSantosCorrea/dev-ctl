@@ -1,6 +1,12 @@
-import { Database, Globe, Server, MessageSquare, HardDrive, ToggleLeft, ToggleRight, Trash2, Copy, Check, Settings } from 'lucide-react'
+import { Database, Globe, Server, MessageSquare, HardDrive, ToggleLeft, ToggleRight, Trash2, Copy, Check, Settings, Mail, Plus, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ServiceItem, Template } from '../lib/api'
+
+export interface ExtraPort {
+  internal: number
+  protocol: string
+  description: string
+}
 
 const categoryIcons: Record<string, typeof Database> = {
   database: Database,
@@ -9,6 +15,7 @@ const categoryIcons: Record<string, typeof Database> = {
   runtime: Server,
   messaging: MessageSquare,
   proxy: Globe,
+  mail: Mail,
 }
 
 interface ServiceCardProps {
@@ -20,6 +27,7 @@ interface ServiceCardProps {
   template?: Template
   onUpdateImage?: (image: string) => void
   isUpdatingImage?: boolean
+  onUpdateExtraPorts?: (extraPorts: ExtraPort[]) => void
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -49,8 +57,9 @@ export default function ServiceCard({
   template,
   onUpdateImage,
   isUpdatingImage = false,
+  onUpdateExtraPorts,
 }: ServiceCardProps) {
-  const Icon = categoryIcons[service.template_name] || HardDrive
+  const Icon = categoryIcons[template?.category || ''] || categoryIcons[service.template_name] || HardDrive
   const isNginx = service.template_name === 'nginx'
   const configuredDocumentRoot =
     typeof service.config?.document_root === 'string'
@@ -59,9 +68,20 @@ export default function ServiceCard({
   const [editingDocumentRoot, setEditingDocumentRoot] = useState(false)
   const [documentRootInput, setDocumentRootInput] = useState(configuredDocumentRoot)
 
+  const configuredExtraPorts: ExtraPort[] = Array.isArray(service.config?.extra_ports)
+    ? (service.config.extra_ports as ExtraPort[])
+    : []
+  const [editingExtraPorts, setEditingExtraPorts] = useState(false)
+  const [extraPortsDraft, setExtraPortsDraft] = useState<ExtraPort[]>(configuredExtraPorts)
+
   useEffect(() => {
     setDocumentRootInput(configuredDocumentRoot)
   }, [configuredDocumentRoot, service.id])
+
+  useEffect(() => {
+    setExtraPortsDraft(configuredExtraPorts)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(configuredExtraPorts), service.id])
 
   return (
     <div className={`bg-white rounded-lg border p-4 ${service.enabled ? 'border-slate-200' : 'border-slate-100 opacity-60'}`}>
@@ -220,6 +240,119 @@ export default function ServiceCard({
               </option>
             ))}
           </select>
+        </div>
+      )}
+
+      {onUpdateExtraPorts && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
+              <Settings className="w-3.5 h-3.5" />
+              Portas Extras
+            </p>
+            {!editingExtraPorts && (
+              <button
+                onClick={() => {
+                  setExtraPortsDraft(configuredExtraPorts)
+                  setEditingExtraPorts(true)
+                }}
+                className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600 border-0 cursor-pointer hover:bg-slate-200"
+              >
+                Editar
+              </button>
+            )}
+          </div>
+
+          {!editingExtraPorts ? (
+            configuredExtraPorts.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {configuredExtraPorts.map((ep, i) => (
+                  <span key={i} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-50 text-amber-700">
+                    {ep.internal}/{ep.protocol}{ep.description ? ` - ${ep.description}` : ''}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">Nenhuma porta extra configurada.</p>
+            )
+          ) : (
+            <div className="space-y-2">
+              {extraPortsDraft.map((ep, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={ep.internal}
+                    onChange={(e) => {
+                      const next = [...extraPortsDraft]
+                      next[i] = { ...next[i], internal: parseInt(e.target.value) || 0 }
+                      setExtraPortsDraft(next)
+                    }}
+                    placeholder="Porta"
+                    className="w-20 px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <select
+                    value={ep.protocol}
+                    onChange={(e) => {
+                      const next = [...extraPortsDraft]
+                      next[i] = { ...next[i], protocol: e.target.value }
+                      setExtraPortsDraft(next)
+                    }}
+                    className="px-2 py-1 border border-slate-300 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="tcp">tcp</option>
+                    <option value="udp">udp</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={ep.description}
+                    onChange={(e) => {
+                      const next = [...extraPortsDraft]
+                      next[i] = { ...next[i], description: e.target.value }
+                      setExtraPortsDraft(next)
+                    }}
+                    placeholder="Descrição"
+                    className="flex-1 px-2 py-1 border border-slate-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={() => setExtraPortsDraft(extraPortsDraft.filter((_, j) => j !== i))}
+                    className="p-1 rounded hover:bg-red-50 border-0 bg-transparent cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setExtraPortsDraft([...extraPortsDraft, { internal: 0, protocol: 'tcp', description: '' }])}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-slate-50 text-slate-600 border border-dashed border-slate-300 cursor-pointer hover:bg-slate-100"
+              >
+                <Plus className="w-3 h-3" />
+                Adicionar porta
+              </button>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={() => {
+                    const valid = extraPortsDraft.filter((ep) => ep.internal >= 1 && ep.internal <= 65535)
+                    onUpdateExtraPorts(valid)
+                    setEditingExtraPorts(false)
+                  }}
+                  className="text-xs px-2 py-1 rounded bg-blue-600 text-white border-0 cursor-pointer hover:bg-blue-700"
+                >
+                  Salvar
+                </button>
+                <button
+                  onClick={() => {
+                    setExtraPortsDraft(configuredExtraPorts)
+                    setEditingExtraPorts(false)
+                  }}
+                  className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 border-0 cursor-pointer hover:bg-slate-200"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

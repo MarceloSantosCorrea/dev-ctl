@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Play, Square, Trash2, ExternalLink, Loader2, AlertTriangle, ArrowLeft, CircleDot, FolderOpen,
+  Play, Square, Trash2, ExternalLink, Loader2, AlertTriangle, ArrowLeft, CircleDot, FolderOpen, Plus, Check,
 } from 'lucide-react'
 import { api, type Template } from '../lib/api'
 import ServiceCard from '../components/ServiceCard'
@@ -14,6 +14,7 @@ export default function ProjectDetail() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [showAddService, setShowAddService] = useState(false)
 
   useEffect(() => {
     if (!toast) {
@@ -93,6 +94,21 @@ export default function ProjectDetail() {
       setToast({
         type: 'error',
         message: err instanceof Error ? err.message : 'Falha ao atualizar o serviço.',
+      })
+    },
+  })
+
+  const addServiceMutation = useMutation({
+    mutationFn: (data: { template_name: string; name: string }) => api.addService(id!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] })
+      setToast({ type: 'success', message: 'Serviço adicionado.' })
+      setShowAddService(false)
+    },
+    onError: (err) => {
+      setToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Falha ao adicionar o serviço.',
       })
     },
   })
@@ -233,9 +249,55 @@ export default function ProjectDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Services */}
         <div className="lg:col-span-2">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">
-            Serviços ({project.services?.length || 0})
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-900">
+              Serviços ({project.services?.length || 0})
+            </h2>
+            <button
+              onClick={() => setShowAddService(!showAddService)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 border-0 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              Adicionar Serviço
+            </button>
+          </div>
+
+          {showAddService && (
+            <div className="bg-white rounded-lg border border-slate-200 p-4 mb-4">
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">Selecione um template</h3>
+              <div className="grid grid-cols-2 gap-2">
+                {templates?.map((tmpl) => {
+                  const alreadyAdded = project.services?.some((s) => s.template_name === tmpl.name) ?? false
+                  return (
+                    <button
+                      key={tmpl.name}
+                      onClick={() => addServiceMutation.mutate({ template_name: tmpl.name, name: tmpl.name })}
+                      disabled={addServiceMutation.isPending}
+                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm text-left bg-slate-50 hover:bg-slate-100 border border-slate-200 cursor-pointer disabled:opacity-50"
+                    >
+                      <div>
+                        <span className="font-medium text-slate-800">{tmpl.display_name}</span>
+                        <span className="block text-xs text-slate-500">{tmpl.category}</span>
+                      </div>
+                      {alreadyAdded && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-green-50 text-green-700">
+                          <Check className="w-3 h-3" />
+                          adicionado
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              {addServiceMutation.isPending && (
+                <div className="flex items-center gap-2 mt-3 text-sm text-slate-500">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Adicionando serviço...
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-3">
             {project.services?.map((svc) => (
               <ServiceCard

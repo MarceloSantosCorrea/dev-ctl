@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/marcelo/devctl/internal/config"
+	"github.com/marcelo/devctl/internal/database"
 	"github.com/marcelo/devctl/internal/docker"
 	"github.com/marcelo/devctl/internal/hosts"
 	"github.com/marcelo/devctl/internal/ssl"
@@ -25,15 +26,17 @@ import (
 )
 
 func init() {
+	initCmd.Flags().Bool("ssl", false, "Enable SSL (installs mkcert and generates certificates)")
 	rootCmd.AddCommand(initCmd)
 }
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize devctl (install mkcert CA, create proxy network, start Traefik)",
+	Short: "Initialize devctl (create proxy network, start Traefik)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 		cfg := config.DefaultConfig()
+		enableSSL, _ := cmd.Flags().GetBool("ssl")
 
 		fmt.Println("Initializing devctl...")
 
@@ -52,49 +55,50 @@ var initCmd = &cobra.Command{
 			fmt.Println("done")
 		}
 
-		// 2. Install mkcert if not present
-		if !ssl.IsMkcertInstalled() {
-			fmt.Print("Installing mkcert... ")
-			if err := installMkcert(); err != nil {
-				fmt.Printf("failed: %v\n", err)
-				fmt.Println("  HTTPS certificates will not be generated. Install mkcert manually: https://github.com/FiloSottile/mkcert")
-			} else {
-				fmt.Println("done")
-			}
-		}
-
-		// 3. Install mkcert CA and generate dashboard cert
-		if ssl.IsMkcertInstalled() {
-			fmt.Print("Installing mkcert CA... ")
-			sslMgr := ssl.NewManager(cfg.CertsDir)
-			if err := sslMgr.InstallCA(); err != nil {
-				fmt.Printf("warning: %v\n", err)
-			} else {
-				fmt.Println("done")
-			}
-
-			// WSL: browsers run on Windows, so the CA must be trusted there too
-			if isWSL() {
-				caRoot := getMkcertCARoot()
-				if caRoot != "" {
-					fmt.Print("Installing mkcert CA on Windows (UAC prompt)... ")
-					if err := installCAOnWindows(caRoot); err != nil {
-						fmt.Printf("skipped: %v\n", err)
-						fmt.Println("  You can install it manually in PowerShell (Admin):")
-						fmt.Printf("    wsl -d %s cat %s/rootCA.pem > %%TEMP%%\\\\rootCA.pem\n", getWSLDistro(), caRoot)
-						fmt.Println("    certutil -addstore Root %TEMP%\\rootCA.pem")
-					} else {
-						fmt.Println("done")
-					}
+		// 2. SSL setup (only when --ssl flag is used)
+		if enableSSL {
+			if !ssl.IsMkcertInstalled() {
+				fmt.Print("Installing mkcert... ")
+				if err := installMkcert(); err != nil {
+					fmt.Printf("failed: %v\n", err)
+					fmt.Println("  HTTPS certificates will not be generated. Install mkcert manually: https://github.com/FiloSottile/mkcert")
+				} else {
+					fmt.Println("done")
 				}
 			}
 
-			// Generate cert for devctl dashboard
-			fmt.Print("Generating certificate for devctl.local... ")
-			if _, _, err := sslMgr.GenerateCert("devctl.local"); err != nil {
-				fmt.Printf("warning: %v\n", err)
-			} else {
-				fmt.Println("done")
+			if ssl.IsMkcertInstalled() {
+				fmt.Print("Installing mkcert CA... ")
+				sslMgr := ssl.NewManager(cfg.CertsDir)
+				if err := sslMgr.InstallCA(); err != nil {
+					fmt.Printf("warning: %v\n", err)
+				} else {
+					fmt.Println("done")
+				}
+
+				// WSL: browsers run on Windows, so the CA must be trusted there too
+				if isWSL() {
+					caRoot := getMkcertCARoot()
+					if caRoot != "" {
+						fmt.Print("Installing mkcert CA on Windows (UAC prompt)... ")
+						if err := installCAOnWindows(caRoot); err != nil {
+							fmt.Printf("skipped: %v\n", err)
+							fmt.Println("  You can install it manually in PowerShell (Admin):")
+							fmt.Printf("    wsl -d %s cat %s/rootCA.pem > %%TEMP%%\\\\rootCA.pem\n", getWSLDistro(), caRoot)
+							fmt.Printf("    certutil -addstore Root %%TEMP%%\\rootCA.pem\n")
+						} else {
+							fmt.Println("done")
+						}
+					}
+				}
+
+				// Generate cert for devctl dashboard
+				fmt.Print("Generating certificate for devctl.local... ")
+				if _, _, err := sslMgr.GenerateCert("devctl.local"); err != nil {
+					fmt.Printf("warning: %v\n", err)
+				} else {
+					fmt.Println("done")
+				}
 			}
 		}
 
@@ -117,7 +121,14 @@ var initCmd = &cobra.Command{
 		}
 		fmt.Println("done")
 
-		// 5. Start Traefik
+		// 5. Open DB (for migrations)
+		db, err := database.Open(cfg.DBPath)
+		if err != nil {
+			return fmt.Errorf("opening database: %w", err)
+		}
+		defer db.Close()
+
+		// 6. Start Traefik
 		fmt.Print("Starting Traefik... ")
 		traefikMgr := traefik.NewManager(dockerCli.Raw(), cfg.TraefikDir, cfg.CertsDir)
 		if err := traefikMgr.Start(ctx); err != nil {
@@ -144,7 +155,11 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Println("\ndevctl initialized successfully!")
-		fmt.Printf("Dashboard will be available at https://devctl.local (run 'devctl serve' to start)\n")
+		scheme := "http"
+		if enableSSL {
+			scheme = "https"
+		}
+		fmt.Printf("Dashboard will be available at %s://devctl.local (run 'devctl serve' to start)\n", scheme)
 
 		return nil
 	},
@@ -152,12 +167,10 @@ var initCmd = &cobra.Command{
 
 // copyTemplatesToDataDir copies .yaml templates from the source directory
 // (next to executable or CWD) into ~/.devctl/templates/.
+// Only missing templates are copied — existing ones are preserved to keep
+// user customizations intact.
 func copyTemplatesToDataDir(cfg *config.Config) error {
-	// Already populated — skip
-	if config.HasTemplates(cfg.TemplatesDir) {
-		return nil
-	}
-
+	// Find source directory
 	var srcDir string
 	if execPath, err := os.Executable(); err == nil {
 		candidate := filepath.Join(filepath.Dir(execPath), "templates")
@@ -174,17 +187,22 @@ func copyTemplatesToDataDir(cfg *config.Config) error {
 		return fmt.Errorf("no template source found")
 	}
 
-	return copyTemplates(srcDir, cfg.TemplatesDir)
-}
+	// Ensure destination directory exists
+	if err := os.MkdirAll(cfg.TemplatesDir, 0755); err != nil {
+		return err
+	}
 
-// copyTemplates copies all .yaml files from src to dst.
-func copyTemplates(src, dst string) error {
-	files, err := filepath.Glob(filepath.Join(src, "*.yaml"))
+	// Copy only missing templates (don't overwrite user customizations)
+	files, err := filepath.Glob(filepath.Join(srcDir, "*.yaml"))
 	if err != nil {
 		return err
 	}
 	for _, f := range files {
-		if err := copyFile(f, filepath.Join(dst, filepath.Base(f))); err != nil {
+		dst := filepath.Join(cfg.TemplatesDir, filepath.Base(f))
+		if _, err := os.Stat(dst); err == nil {
+			continue // already exists, skip
+		}
+		if err := copyFile(f, dst); err != nil {
 			return err
 		}
 	}

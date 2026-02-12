@@ -10,11 +10,13 @@ import (
 
 	"github.com/marcelo/devctl/internal/api/handlers"
 	apimiddleware "github.com/marcelo/devctl/internal/api/middleware"
+	"github.com/marcelo/devctl/internal/auth"
+	"github.com/marcelo/devctl/internal/config"
 	"github.com/marcelo/devctl/internal/core/project"
 	"github.com/marcelo/devctl/internal/docker"
 )
 
-func NewRouter(projectSvc *project.Service, dockerCli *docker.Client, templateDir string) http.Handler {
+func NewRouter(projectSvc *project.Service, dockerCli *docker.Client, templateDir string, authSvc *auth.Service, cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -23,33 +25,47 @@ func NewRouter(projectSvc *project.Service, dockerCli *docker.Client, templateDi
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 
+	ah := handlers.NewAuthHandler(authSvc)
 	ph := handlers.NewProjectHandler(projectSvc)
 	sh := handlers.NewServiceHandler(projectSvc)
 	th := handlers.NewTemplateHandler(templateDir)
-	sysh := handlers.NewSystemHandler(dockerCli)
+	sysh := handlers.NewSystemHandler(dockerCli, cfg)
 
 	r.Route("/api", func(r chi.Router) {
-		// Projects
-		r.Get("/projects", ph.List)
-		r.Post("/projects", ph.Create)
-		r.Get("/projects/{id}", ph.Get)
-		r.Put("/projects/{id}", ph.Update)
-		r.Delete("/projects/{id}", ph.Delete)
-		r.Post("/projects/{id}/up", ph.Up)
-		r.Post("/projects/{id}/down", ph.Down)
-		r.Get("/projects/{id}/logs", ph.Logs)
+		// Public auth routes
+		r.Post("/auth/register", ah.Register)
+		r.Post("/auth/login", ah.Login)
 
-		// Services within projects
-		r.Post("/projects/{id}/services", sh.Create)
-		r.Put("/projects/{id}/services/{sid}", sh.Update)
-		r.Delete("/projects/{id}/services/{sid}", sh.Delete)
-		r.Patch("/projects/{id}/services/{sid}/toggle", sh.Toggle)
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(apimiddleware.RequireAuth(authSvc))
 
-		// Templates
-		r.Get("/templates", th.List)
+			// Auth
+			r.Post("/auth/logout", ah.Logout)
+			r.Get("/auth/me", ah.Me)
 
-		// System
-		r.Get("/system/status", sysh.Status)
+			// Projects
+			r.Get("/projects", ph.List)
+			r.Post("/projects", ph.Create)
+			r.Get("/projects/{id}", ph.Get)
+			r.Put("/projects/{id}", ph.Update)
+			r.Delete("/projects/{id}", ph.Delete)
+			r.Post("/projects/{id}/up", ph.Up)
+			r.Post("/projects/{id}/down", ph.Down)
+			r.Get("/projects/{id}/logs", ph.Logs)
+
+			// Services within projects
+			r.Post("/projects/{id}/services", sh.Create)
+			r.Put("/projects/{id}/services/{sid}", sh.Update)
+			r.Delete("/projects/{id}/services/{sid}", sh.Delete)
+			r.Patch("/projects/{id}/services/{sid}/toggle", sh.Toggle)
+
+			// Templates
+			r.Get("/templates", th.List)
+
+			// System
+			r.Get("/system/status", sysh.Status)
+		})
 	})
 
 	// SPA fallback — serve embedded frontend

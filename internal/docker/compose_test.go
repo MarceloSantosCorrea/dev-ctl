@@ -36,7 +36,7 @@ func TestGenerateCompose_Basic(t *testing.T) {
 		},
 	}
 
-	data, err := GenerateCompose("projeto1", services)
+	data, err := GenerateCompose("projeto1", services, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestGenerateCompose_WithTraefikLabels(t *testing.T) {
 		},
 	}
 
-	data, err := GenerateCompose("projeto1", services)
+	data, err := GenerateCompose("projeto1", services, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,6 +95,9 @@ func TestGenerateCompose_WithTraefikLabels(t *testing.T) {
 	}
 	if !strings.Contains(content, "traefik.http.routers.projeto1.tls=true") {
 		t.Error("missing traefik TLS setting")
+	}
+	if !strings.Contains(content, "traefik.http.routers.projeto1.entrypoints=websecure") {
+		t.Error("missing websecure entrypoint")
 	}
 
 	// Verify networks include devctl-proxy
@@ -113,6 +116,43 @@ func TestGenerateCompose_WithTraefikLabels(t *testing.T) {
 	}
 }
 
+func TestGenerateCompose_WithTraefikLabels_NoSSL(t *testing.T) {
+	services := []ServiceSpec{
+		{
+			Name:  "nginx",
+			Image: "nginx:alpine",
+			InternalPorts: []PortMapping{
+				{Internal: 80, External: 8080, Protocol: "tcp"},
+			},
+			IsWebEntry: true,
+			Domain:     "projeto1.local",
+		},
+	}
+
+	data, err := GenerateCompose("projeto1", services, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content := string(data)
+
+	if !strings.Contains(content, "traefik.enable=true") {
+		t.Error("missing traefik.enable label")
+	}
+	if !strings.Contains(content, "Host(`projeto1.local`)") {
+		t.Error("missing traefik host rule")
+	}
+	if strings.Contains(content, "tls=true") {
+		t.Error("should NOT have tls=true when SSL is disabled")
+	}
+	if !strings.Contains(content, "traefik.http.routers.projeto1.entrypoints=web") {
+		t.Error("missing web entrypoint")
+	}
+	if strings.Contains(content, "entrypoints=websecure") {
+		t.Error("should NOT have websecure entrypoint when SSL is disabled")
+	}
+}
+
 func TestGenerateCompose_Networks(t *testing.T) {
 	services := []ServiceSpec{
 		{
@@ -121,7 +161,7 @@ func TestGenerateCompose_Networks(t *testing.T) {
 		},
 	}
 
-	data, err := GenerateCompose("myproject", services)
+	data, err := GenerateCompose("myproject", services, false)
 	if err != nil {
 		t.Fatal(err)
 	}

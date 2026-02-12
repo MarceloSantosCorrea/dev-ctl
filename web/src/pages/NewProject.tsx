@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Check, ChevronRight, Loader2, Plus, X } from 'lucide-react'
@@ -20,6 +20,7 @@ export default function NewProject() {
   const [projectName, setProjectName] = useState('')
   const [projectPath, setProjectPath] = useState('')
   const [selectedServices, setSelectedServices] = useState<SelectedService[]>([])
+  const [sslEnabled, setSSLEnabled] = useState(false)
 
   const { data: templates } = useQuery({
     queryKey: ['templates'],
@@ -31,6 +32,7 @@ export default function NewProject() {
       api.createProject({
         name: projectName,
         path: projectPath || undefined,
+        ssl_enabled: sslEnabled,
         services: selectedServices,
       }),
     onSuccess: (project) => {
@@ -77,6 +79,13 @@ export default function NewProject() {
   }
 
   const nginxService = selectedServices.find((s) => s.template_name === 'nginx')
+
+  // Reset sslEnabled if nginx is removed
+  useEffect(() => {
+    if (!nginxService) {
+      setSSLEnabled(false)
+    }
+  }, [nginxService])
   const nginxDocumentRoot =
     typeof nginxService?.config?.document_root === 'string'
       ? (nginxService.config.document_root as string)
@@ -201,6 +210,15 @@ export default function NewProject() {
                 Relative value (ex.: <span className="font-mono">public</span>) usa o diretório montado no
                 container. Caminho absoluto também é aceito.
               </p>
+              <label className="flex items-center gap-2 mt-3">
+                <input
+                  type="checkbox"
+                  checked={sslEnabled}
+                  onChange={(e) => setSSLEnabled(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700">Habilitar SSL (HTTPS)</span>
+              </label>
             </div>
           )}
 
@@ -376,6 +394,14 @@ export default function NewProject() {
               <dt className="text-sm font-medium text-slate-500">Domínio</dt>
               <dd className="text-sm text-blue-600">{projectName}.local</dd>
             </div>
+            {nginxService && (
+              <div className="py-3 flex justify-between">
+                <dt className="text-sm font-medium text-slate-500">SSL</dt>
+                <dd className={`text-sm font-medium ${sslEnabled ? 'text-green-600' : 'text-slate-500'}`}>
+                  {sslEnabled ? 'Habilitado' : 'Desabilitado'}
+                </dd>
+              </div>
+            )}
             {projectPath && (
               <div className="py-3 flex justify-between">
                 <dt className="text-sm font-medium text-slate-500">Caminho</dt>

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/marcelo/devctl/internal/auth"
 	"github.com/marcelo/devctl/internal/core/project"
 )
 
@@ -20,7 +21,8 @@ func NewProjectHandler(svc *project.Service) *ProjectHandler {
 }
 
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
-	projects, err := h.svc.ListProjects(r.Context())
+	user := auth.UserFromContext(r.Context())
+	projects, err := h.svc.ListProjects(r.Context(), user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -32,8 +34,9 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	p, err := h.svc.GetProject(r.Context(), id)
+	p, err := h.svc.GetProject(r.Context(), id, user.ID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
@@ -42,6 +45,7 @@ func (h *ProjectHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	var input project.CreateProjectInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -53,7 +57,7 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := h.svc.CreateProject(r.Context(), input)
+	p, err := h.svc.CreateProject(r.Context(), input, user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -63,18 +67,20 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
 
 	var body struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
+		Name       string `json:"name"`
+		Path       string `json:"path"`
+		SSLEnabled *bool  `json:"ssl_enabled"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	p, err := h.svc.UpdateProject(r.Context(), id, body.Name, body.Path)
+	p, err := h.svc.UpdateProject(r.Context(), id, body.Name, body.Path, body.SSLEnabled, user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -84,8 +90,9 @@ func (h *ProjectHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	if err := h.svc.DeleteProject(r.Context(), id); err != nil {
+	if err := h.svc.DeleteProject(r.Context(), id, user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -93,8 +100,9 @@ func (h *ProjectHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Up(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	if err := h.svc.ProjectUp(r.Context(), id); err != nil {
+	if err := h.svc.ProjectUp(r.Context(), id, user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -102,8 +110,9 @@ func (h *ProjectHandler) Up(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Down(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	if err := h.svc.ProjectDown(r.Context(), id); err != nil {
+	if err := h.svc.ProjectDown(r.Context(), id, user.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -111,8 +120,9 @@ func (h *ProjectHandler) Down(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProjectHandler) Logs(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")
-	_, err := h.svc.GetProject(r.Context(), id)
+	_, err := h.svc.GetProject(r.Context(), id, user.ID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "project not found")
 		return

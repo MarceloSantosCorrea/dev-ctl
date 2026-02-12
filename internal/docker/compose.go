@@ -68,7 +68,7 @@ type PortMapping struct {
 }
 
 // GenerateCompose creates a docker-compose.yml content for a project.
-func GenerateCompose(projectName string, services []ServiceSpec) ([]byte, error) {
+func GenerateCompose(projectName string, services []ServiceSpec, sslEnabled bool) ([]byte, error) {
 	compose := ComposeFile{
 		Services: make(map[string]ComposeService),
 		Networks: map[string]ComposeNetwork{
@@ -117,7 +117,21 @@ func GenerateCompose(projectName string, services []ServiceSpec) ([]byte, error)
 			svc.Labels = []string{
 				"traefik.enable=true",
 				fmt.Sprintf("traefik.http.routers.%s.rule=Host(`%s`)", routerName, spec.Domain),
-				fmt.Sprintf("traefik.http.routers.%s.tls=true", routerName),
+			}
+			if sslEnabled {
+				svc.Labels = append(svc.Labels,
+					fmt.Sprintf("traefik.http.routers.%s.tls=true", routerName),
+					fmt.Sprintf("traefik.http.routers.%s.entrypoints=websecure", routerName),
+					// HTTP→HTTPS redirect router
+					fmt.Sprintf("traefik.http.routers.%s-http.rule=Host(`%s`)", routerName, spec.Domain),
+					fmt.Sprintf("traefik.http.routers.%s-http.entrypoints=web", routerName),
+					fmt.Sprintf("traefik.http.routers.%s-http.middlewares=%s-redirect", routerName, routerName),
+					fmt.Sprintf("traefik.http.middlewares.%s-redirect.redirectscheme.scheme=https", routerName),
+				)
+			} else {
+				svc.Labels = append(svc.Labels,
+					fmt.Sprintf("traefik.http.routers.%s.entrypoints=web", routerName),
+				)
 			}
 			// Find the first internal port to use as load balancer port
 			if len(spec.InternalPorts) > 0 {

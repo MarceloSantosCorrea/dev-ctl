@@ -89,6 +89,8 @@ function ProjectCard({
     error: 'text-red-600 bg-red-50',
   }
 
+  const scheme = project.ssl_enabled ? 'https' : 'http'
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-3">
@@ -101,7 +103,7 @@ function ProjectCard({
           </Link>
           <div className="flex items-center gap-1.5 mt-1">
             <a
-              href={`https://${project.domain}`}
+              href={`${scheme}://${project.domain}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-blue-600 no-underline hover:underline flex items-center gap-1"

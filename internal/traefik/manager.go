@@ -73,6 +73,12 @@ func (m *Manager) Remove(ctx context.Context) error {
 	return m.cli.ContainerRemove(ctx, traefikContainerName, container.RemoveOptions{Force: true})
 }
 
+// Recreate removes and re-starts Traefik (used when toggling SSL).
+func (m *Manager) Recreate(ctx context.Context) error {
+	_ = m.Remove(ctx)
+	return m.Start(ctx)
+}
+
 // IsRunning checks if Traefik is running.
 func (m *Manager) IsRunning(ctx context.Context) (bool, error) {
 	f := filters.NewArgs(
@@ -138,18 +144,13 @@ func (m *Manager) writeStaticConfig() error {
 		return err
 	}
 
-	config := `api:
+	cfg := `api:
   dashboard: false
   insecure: false
 
 entryPoints:
   web:
     address: ":80"
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
   websecure:
     address: ":443"
 
@@ -166,7 +167,7 @@ log:
   level: WARN
 `
 
-	return os.WriteFile(filepath.Join(m.traefikDir, "traefik.yaml"), []byte(config), 0644)
+	return os.WriteFile(filepath.Join(m.traefikDir, "traefik.yaml"), []byte(cfg), 0644)
 }
 
 func (m *Manager) containerExists(ctx context.Context) (bool, error) {
@@ -198,34 +199,37 @@ func (m *Manager) create(ctx context.Context) error {
 		}
 	}
 
+	portBindings := nat.PortMap{
+		"80/tcp":  []nat.PortBinding{{HostPort: "80"}},
+		"443/tcp": []nat.PortBinding{{HostPort: "443"}},
+	}
+	mounts := []mount.Mount{
+		{
+			Type:   mount.TypeBind,
+			Source: "/var/run/docker.sock",
+			Target: "/var/run/docker.sock",
+		},
+		{
+			Type:   mount.TypeBind,
+			Source: m.traefikDir,
+			Target: "/etc/traefik",
+		},
+		{
+			Type:   mount.TypeBind,
+			Source: m.certsDir,
+			Target: "/certs",
+		},
+	}
+
 	resp, err := m.cli.ContainerCreate(ctx,
 		&container.Config{
 			Image: traefikImage,
 		},
 		&container.HostConfig{
 			RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
-			PortBindings: nat.PortMap{
-				"80/tcp":  []nat.PortBinding{{HostPort: "80"}},
-				"443/tcp": []nat.PortBinding{{HostPort: "443"}},
-			},
-			Mounts: []mount.Mount{
-				{
-					Type:   mount.TypeBind,
-					Source: "/var/run/docker.sock",
-					Target: "/var/run/docker.sock",
-				},
-				{
-					Type:   mount.TypeBind,
-					Source: m.traefikDir,
-					Target: "/etc/traefik",
-				},
-				{
-					Type:   mount.TypeBind,
-					Source: m.certsDir,
-					Target: "/certs",
-				},
-			},
-			ExtraHosts: []string{"host.docker.internal:host-gateway"},
+			PortBindings:  portBindings,
+			Mounts:        mounts,
+			ExtraHosts:    []string{"host.docker.internal:host-gateway"},
 		},
 		&network.NetworkingConfig{
 			EndpointsConfig: map[string]*network.EndpointSettings{

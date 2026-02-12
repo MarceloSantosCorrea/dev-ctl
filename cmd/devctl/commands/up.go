@@ -28,14 +28,14 @@ var upCmd = &cobra.Command{
 		projectName := args[0]
 		ctx := context.Background()
 
-		svc, cleanup, err := buildProjectService()
+		svc, _, cleanup, err := buildProjectService()
 		if err != nil {
 			return err
 		}
 		defer cleanup()
 
 		// Find project by name
-		projects, err := svc.ListProjects(ctx)
+		projects, err := svc.ListAllProjects(ctx)
 		if err != nil {
 			return err
 		}
@@ -53,32 +53,36 @@ var upCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Starting project %q...\n", projectName)
-		if err := svc.ProjectUp(ctx, found.ID); err != nil {
+		if err := svc.ProjectUpByID(ctx, found.ID); err != nil {
 			return fmt.Errorf("starting project: %w", err)
 		}
 
-		fmt.Printf("Project %q is running at https://%s\n", projectName, found.Domain)
+		scheme := "http"
+		if found.SSLEnabled {
+			scheme = "https"
+		}
+		fmt.Printf("Project %q is running at %s://%s\n", projectName, scheme, found.Domain)
 		return nil
 	},
 }
 
 // buildProjectService creates a project.Service with all dependencies.
-// Returns the service and a cleanup function.
-func buildProjectService() (*project.Service, func(), error) {
+// Returns the service, config, and a cleanup function.
+func buildProjectService() (*project.Service, *config.Config, func(), error) {
 	cfg := config.DefaultConfig()
 	if err := cfg.EnsureDirs(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	db, err := database.Open(cfg.DBPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("opening database: %w", err)
+		return nil, nil, nil, fmt.Errorf("opening database: %w", err)
 	}
 
 	dockerCli, err := docker.NewClient()
 	if err != nil {
 		db.Close()
-		return nil, nil, fmt.Errorf("connecting to Docker: %w", err)
+		return nil, nil, nil, fmt.Errorf("connecting to Docker: %w", err)
 	}
 
 	portMgr := ports.NewManager(db)
@@ -97,5 +101,5 @@ func buildProjectService() (*project.Service, func(), error) {
 		db.Close()
 	}
 
-	return svc, cleanup, nil
+	return svc, cfg, cleanup, nil
 }

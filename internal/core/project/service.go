@@ -38,15 +38,16 @@ type Service struct {
 }
 
 type Project struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Domain    string    `json:"domain"`
-	Path      string    `json:"path"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Services  []Svc     `json:"services,omitempty"`
-	Warnings  []string  `json:"warnings,omitempty"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Domain     string    `json:"domain"`
+	Path       string    `json:"path"`
+	SSLEnabled bool      `json:"ssl_enabled"`
+	Status     string    `json:"status"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Services   []Svc     `json:"services,omitempty"`
+	Warnings   []string  `json:"warnings,omitempty"`
 }
 
 type Svc struct {
@@ -62,9 +63,10 @@ type Svc struct {
 }
 
 type CreateProjectInput struct {
-	Name     string               `json:"name"`
-	Path     string               `json:"path"`
-	Services []CreateServiceInput `json:"services"`
+	Name       string               `json:"name"`
+	Path       string               `json:"path"`
+	SSLEnabled bool                 `json:"ssl_enabled"`
+	Services   []CreateServiceInput `json:"services"`
 }
 
 type CreateServiceInput struct {
@@ -109,8 +111,8 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput, u
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO projects (id, name, domain, path, user_id, status) VALUES (?, ?, ?, ?, ?, 'stopped')",
-		projectID, input.Name, domain, input.Path, userID,
+		"INSERT INTO projects (id, name, domain, path, user_id, ssl_enabled, status) VALUES (?, ?, ?, ?, ?, ?, 'stopped')",
+		projectID, input.Name, domain, input.Path, userID, input.SSLEnabled,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("inserting project: %w", err)
@@ -143,8 +145,8 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput, u
 
 	var warnings []string
 	if s.hasWebService(input.Services) {
-		// Generate SSL certificate
-		if ssl.IsMkcertInstalled() {
+		// Generate SSL certificate (only when SSL is enabled for this project)
+		if input.SSLEnabled && ssl.IsMkcertInstalled() {
 			if _, _, err := s.sslMgr.GenerateCert(domain); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to generate SSL cert for %s: %v\n", domain, err)
 			}
@@ -158,7 +160,9 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput, u
 		}
 
 		// Update Traefik certs config
-		s.refreshTraefikCerts()
+		if input.SSLEnabled {
+			s.refreshTraefikCerts()
+		}
 	}
 
 	proj, err := s.GetProject(ctx, projectID, userID)
@@ -173,8 +177,8 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput, u
 func (s *Service) GetProject(ctx context.Context, id string, userID string) (*Project, error) {
 	p := &Project{}
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects WHERE id = ? AND user_id = ?", id, userID,
-	).Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+		"SELECT id, name, domain, path, ssl_enabled, status, created_at, updated_at FROM projects WHERE id = ? AND user_id = ?", id, userID,
+	).Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.SSLEnabled, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("fetching project: %w", err)
 	}
@@ -192,8 +196,8 @@ func (s *Service) GetProject(ctx context.Context, id string, userID string) (*Pr
 func (s *Service) getProjectByID(ctx context.Context, id string) (*Project, error) {
 	p := &Project{}
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects WHERE id = ?", id,
-	).Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+		"SELECT id, name, domain, path, ssl_enabled, status, created_at, updated_at FROM projects WHERE id = ?", id,
+	).Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.SSLEnabled, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("fetching project: %w", err)
 	}
@@ -210,7 +214,7 @@ func (s *Service) getProjectByID(ctx context.Context, id string) (*Project, erro
 // ListProjects returns all projects for a given user.
 func (s *Service) ListProjects(ctx context.Context, userID string) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects WHERE user_id = ? ORDER BY created_at DESC", userID,
+		"SELECT id, name, domain, path, ssl_enabled, status, created_at, updated_at FROM projects WHERE user_id = ? ORDER BY created_at DESC", userID,
 	)
 	if err != nil {
 		return nil, err
@@ -220,7 +224,7 @@ func (s *Service) ListProjects(ctx context.Context, userID string) ([]Project, e
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.SSLEnabled, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		svcs, _ := s.getProjectServices(ctx, p.ID)
@@ -256,9 +260,10 @@ func (s *Service) DeleteProject(ctx context.Context, id string, userID string) e
 		s.hostsMgr.RemoveDomain(p.Domain)
 
 		// Remove SSL cert
-		s.sslMgr.RemoveCert(p.Domain)
-
-		s.refreshTraefikCerts()
+		if p.SSLEnabled {
+			s.sslMgr.RemoveCert(p.Domain)
+			s.refreshTraefikCerts()
+		}
 	}
 
 	// Clean up compose file
@@ -269,15 +274,50 @@ func (s *Service) DeleteProject(ctx context.Context, id string, userID string) e
 }
 
 // UpdateProject updates a project's mutable fields.
-func (s *Service) UpdateProject(ctx context.Context, id string, name string, path string, userID string) (*Project, error) {
+func (s *Service) UpdateProject(ctx context.Context, id string, name string, path string, sslEnabled *bool, userID string) (*Project, error) {
+	// Fetch current project to detect SSL changes
+	oldProject, err := s.GetProject(ctx, id, userID)
+	if err != nil {
+		return nil, err
+	}
+
 	domain := name + ".local"
-	_, err := s.db.ExecContext(ctx,
+	_, err = s.db.ExecContext(ctx,
 		"UPDATE projects SET name = ?, domain = ?, path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
 		name, domain, path, id, userID,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	// Handle SSL toggle
+	if sslEnabled != nil {
+		_, err = s.db.ExecContext(ctx,
+			"UPDATE projects SET ssl_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
+			*sslEnabled, id, userID,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if *sslEnabled && !oldProject.SSLEnabled {
+			// Turned ON: generate cert
+			if ssl.IsMkcertInstalled() {
+				s.sslMgr.GenerateCert(domain)
+			}
+			s.refreshTraefikCerts()
+		} else if !*sslEnabled && oldProject.SSLEnabled {
+			// Turned OFF: remove cert
+			s.sslMgr.RemoveCert(domain)
+			s.refreshTraefikCerts()
+		}
+
+		// If project is running, restart to apply new compose labels
+		if oldProject.Status == "running" {
+			_ = s.projectUp(ctx, id)
+		}
+	}
+
 	return s.GetProject(ctx, id, userID)
 }
 
@@ -300,7 +340,7 @@ func (s *Service) ProjectUp(ctx context.Context, id string, userID string) error
 	}
 
 	// Generate compose file
-	composeData, err := docker.GenerateCompose(p.Name, specs)
+	composeData, err := docker.GenerateCompose(p.Name, specs, p.SSLEnabled)
 	if err != nil {
 		return fmt.Errorf("generating compose: %w", err)
 	}
@@ -350,7 +390,7 @@ func (s *Service) ProjectDown(ctx context.Context, id string, userID string) err
 // ListAllProjects returns all projects regardless of user (for CLI use).
 func (s *Service) ListAllProjects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, domain, path, status, created_at, updated_at FROM projects ORDER BY created_at DESC",
+		"SELECT id, name, domain, path, ssl_enabled, status, created_at, updated_at FROM projects ORDER BY created_at DESC",
 	)
 	if err != nil {
 		return nil, err
@@ -360,7 +400,7 @@ func (s *Service) ListAllProjects(ctx context.Context) ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Domain, &p.Path, &p.SSLEnabled, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		svcs, _ := s.getProjectServices(ctx, p.ID)
@@ -418,7 +458,7 @@ func (s *Service) projectUp(ctx context.Context, id string) error {
 		return fmt.Errorf("building compose specs: %w", err)
 	}
 
-	composeData, err := docker.GenerateCompose(p.Name, specs)
+	composeData, err := docker.GenerateCompose(p.Name, specs, p.SSLEnabled)
 	if err != nil {
 		return fmt.Errorf("generating compose: %w", err)
 	}
@@ -467,11 +507,13 @@ func (s *Service) AddService(ctx context.Context, projectID string, input Create
 	if tmplErr == nil && (tmpl.Category == "web" || tmpl.Category == "proxy") {
 		p, pErr := s.getProjectByID(ctx, projectID)
 		if pErr == nil && p != nil {
-			if ssl.IsMkcertInstalled() {
+			if p.SSLEnabled && ssl.IsMkcertInstalled() {
 				s.sslMgr.GenerateCert(p.Domain)
 			}
 			s.hostsMgr.AddDomain(p.Domain)
-			s.refreshTraefikCerts()
+			if p.SSLEnabled {
+				s.refreshTraefikCerts()
+			}
 		}
 	}
 
@@ -520,8 +562,10 @@ func (s *Service) DeleteService(ctx context.Context, serviceID string) error {
 			p, _ := s.getProjectByID(ctx, svc.ProjectID)
 			if p != nil && !s.hasWebServiceFromSvcs(p.Services) {
 				s.hostsMgr.RemoveDomain(p.Domain)
-				s.sslMgr.RemoveCert(p.Domain)
-				s.refreshTraefikCerts()
+				if p.SSLEnabled {
+					s.sslMgr.RemoveCert(p.Domain)
+					s.refreshTraefikCerts()
+				}
 			}
 		}
 	}
@@ -1092,6 +1136,18 @@ func (s *Service) streamContainerLogs(ctx context.Context, ctr docker.ContainerS
 }
 
 func (s *Service) refreshTraefikCerts() {
-	domains, _ := s.hostsMgr.GetDomains()
+	rows, _ := s.db.Query("SELECT domain FROM projects WHERE ssl_enabled = 1")
+	if rows == nil {
+		s.traefikMgr.UpdateCertsConfig(nil)
+		return
+	}
+	defer rows.Close()
+	var domains []string
+	for rows.Next() {
+		var d string
+		if rows.Scan(&d) == nil {
+			domains = append(domains, d)
+		}
+	}
 	s.traefikMgr.UpdateCertsConfig(domains)
 }

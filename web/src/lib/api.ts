@@ -1,10 +1,18 @@
 const BASE_URL = '/api';
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  created_at: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   domain: string;
   path: string;
+  ssl_enabled: boolean;
   status: 'stopped' | 'running' | 'error';
   created_at: string;
   updated_at: string;
@@ -51,9 +59,14 @@ export interface SystemStatus {
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${url}`, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     ...options,
   });
   if (!res.ok) {
+    if (res.status === 401 && !url.startsWith('/auth/')) {
+      window.location.href = '/login';
+      throw new Error('Unauthorized');
+    }
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || 'Request failed');
   }
@@ -61,12 +74,21 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Auth
+  register: (data: { name: string; email: string; password: string }) =>
+    request<User>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  login: (data: { email: string; password: string }) =>
+    request<User>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  logout: () =>
+    request<{ status: string }>('/auth/logout', { method: 'POST' }),
+  me: () => request<User>('/auth/me'),
+
   // Projects
   listProjects: () => request<Project[]>('/projects'),
   getProject: (id: string) => request<Project>(`/projects/${id}`),
-  createProject: (data: { name: string; path?: string; services: { template_name: string; name: string; config?: Record<string, unknown> }[] }) =>
+  createProject: (data: { name: string; path?: string; ssl_enabled?: boolean; services: { template_name: string; name: string; config?: Record<string, unknown> }[] }) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  updateProject: (id: string, data: { name: string }) =>
+  updateProject: (id: string, data: { name?: string; path?: string; ssl_enabled?: boolean }) =>
     request<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteProject: (id: string) =>
     request<{ status: string }>(`/projects/${id}`, { method: 'DELETE' }),

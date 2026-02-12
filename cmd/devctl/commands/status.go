@@ -19,13 +19,13 @@ var statusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 
-		svc, cleanup, err := buildProjectService()
+		svc, _, cleanup, err := buildProjectService()
 		if err != nil {
 			return err
 		}
 		defer cleanup()
 
-		projects, err := svc.ListProjects(ctx)
+		projects, err := svc.ListAllProjects(ctx)
 		if err != nil {
 			return err
 		}

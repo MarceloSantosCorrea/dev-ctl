@@ -59,6 +59,23 @@ func migrate(db *sql.DB) error {
 			protocol        TEXT DEFAULT 'tcp',
 			UNIQUE(external_port, protocol)
 		)`,
+		`CREATE TABLE IF NOT EXISTS users (
+			id            TEXT PRIMARY KEY,
+			name          TEXT NOT NULL,
+			email         TEXT UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS sessions (
+			token      TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			expires_at DATETIME NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS settings (
+			key   TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)`,
 	}
 
 	for _, m := range migrations {
@@ -70,6 +87,8 @@ func migrate(db *sql.DB) error {
 	// Safe column additions (SQLite doesn't support IF NOT EXISTS for ALTER TABLE)
 	alterMigrations := []string{
 		`ALTER TABLE projects ADD COLUMN path TEXT DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN user_id TEXT DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN ssl_enabled BOOLEAN DEFAULT 0`,
 	}
 	for _, m := range alterMigrations {
 		db.Exec(m) // Ignore errors — column may already exist

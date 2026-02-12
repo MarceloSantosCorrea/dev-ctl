@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/marcelo/devctl/internal/auth"
 	"github.com/marcelo/devctl/internal/core/project"
 )
 
@@ -18,7 +19,14 @@ func NewServiceHandler(svc *project.Service) *ServiceHandler {
 }
 
 func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
 	projectID := chi.URLParam(r, "id")
+
+	// Verify ownership
+	if _, err := h.svc.GetProject(r.Context(), projectID, user.ID); err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
 
 	var input project.CreateServiceInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -41,7 +49,15 @@ func (h *ServiceHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	projectID := chi.URLParam(r, "id")
 	sid := chi.URLParam(r, "sid")
+
+	// Verify ownership
+	if _, err := h.svc.GetProject(r.Context(), projectID, user.ID); err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
 
 	var body struct {
 		Name   string                 `json:"name"`
@@ -62,7 +78,16 @@ func (h *ServiceHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ServiceHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	projectID := chi.URLParam(r, "id")
 	sid := chi.URLParam(r, "sid")
+
+	// Verify ownership
+	if _, err := h.svc.GetProject(r.Context(), projectID, user.ID); err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
 	if err := h.svc.DeleteService(r.Context(), sid); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -71,7 +96,16 @@ func (h *ServiceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ServiceHandler) Toggle(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	projectID := chi.URLParam(r, "id")
 	sid := chi.URLParam(r, "sid")
+
+	// Verify ownership
+	if _, err := h.svc.GetProject(r.Context(), projectID, user.ID); err != nil {
+		writeError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
 	svc, err := h.svc.ToggleService(r.Context(), sid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/marcelo/devctl/internal/api"
+	"github.com/marcelo/devctl/internal/auth"
 	"github.com/marcelo/devctl/internal/config"
 	"github.com/marcelo/devctl/internal/core/project"
 	"github.com/marcelo/devctl/internal/database"
@@ -59,7 +60,8 @@ var serveCmd = &cobra.Command{
 			db, cfg, portMgr, hostsMgr, sslMgr, traefikMgr, dockerCli, networkMgr, templateDir,
 		)
 
-		router := api.NewRouter(projectSvc, dockerCli, templateDir)
+		authSvc := auth.NewService(db)
+		router := api.NewRouter(projectSvc, dockerCli, templateDir, authSvc, cfg)
 
 		addr := fmt.Sprintf(":%d", cfg.APIPort)
 		srv := &http.Server{

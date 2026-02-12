@@ -20,13 +20,13 @@ var downCmd = &cobra.Command{
 		projectName := args[0]
 		ctx := context.Background()
 
-		svc, cleanup, err := buildProjectService()
+		svc, _, cleanup, err := buildProjectService()
 		if err != nil {
 			return err
 		}
 		defer cleanup()
 
-		projects, err := svc.ListProjects(ctx)
+		projects, err := svc.ListAllProjects(ctx)
 		if err != nil {
 			return err
 		}
@@ -44,7 +44,7 @@ var downCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Stopping project %q...\n", projectName)
-		if err := svc.ProjectDown(ctx, found.ID); err != nil {
+		if err := svc.ProjectDownByID(ctx, found.ID); err != nil {
 			return fmt.Errorf("stopping project: %w", err)
 		}
 

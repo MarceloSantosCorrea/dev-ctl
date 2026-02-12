@@ -35,6 +35,8 @@ export default function ProjectDetail() {
     queryFn: api.listTemplates,
   })
 
+  const scheme = project?.ssl_enabled ? 'https' : 'http'
+
   const upMutation = useMutation({
     mutationFn: () => api.projectUp(id!),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
@@ -72,6 +74,11 @@ export default function ProjectDetail() {
 
   const deleteServiceMutation = useMutation({
     mutationFn: (serviceId: string) => api.deleteService(id!, serviceId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
+  })
+
+  const toggleSSLMutation = useMutation({
+    mutationFn: (enabled: boolean) => api.updateProject(id!, { ssl_enabled: enabled }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
   })
 
@@ -113,6 +120,9 @@ export default function ProjectDetail() {
     error: 'text-red-600 bg-red-50',
   }
 
+  const hasWebService = project.services?.some(
+    (s) => s.template_name === 'nginx' || templates?.find((t) => t.name === s.template_name && (t.category === 'web' || t.category === 'proxy'))
+  ) ?? false
   const allPorts = project.services?.flatMap((s) => s.ports || []) || []
 
   return (
@@ -154,12 +164,12 @@ export default function ProjectDetail() {
               </span>
             </div>
             <a
-              href={`https://${project.domain}`}
+              href={`${scheme}://${project.domain}`}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm text-blue-600 no-underline hover:underline flex items-center gap-1"
             >
-              https://{project.domain}
+              {scheme}://{project.domain}
               <ExternalLink className="w-3 h-3" />
             </a>
             {project.path && (
@@ -167,6 +177,20 @@ export default function ProjectDetail() {
                 <FolderOpen className="w-3 h-3" />
                 <span className="font-mono">{project.path}</span>
               </p>
+            )}
+            {hasWebService && (
+              <label className="flex items-center gap-2 mt-2">
+                <input
+                  type="checkbox"
+                  checked={project.ssl_enabled}
+                  onChange={() => toggleSSLMutation.mutate(!project.ssl_enabled)}
+                  disabled={toggleSSLMutation.isPending}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-600">
+                  SSL (HTTPS) {toggleSSLMutation.isPending ? '...' : ''}
+                </span>
+              </label>
             )}
           </div>
 

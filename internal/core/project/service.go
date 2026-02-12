@@ -681,6 +681,24 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir 
 			volName := fmt.Sprintf("devctl-%s-%s-data", p.Name, svc.Name)
 			volumes = append(volumes, fmt.Sprintf("%s:%s", volName, vol.Target))
 		}
+		if svc.TemplateName == "supervisord" {
+			if confPath, ok := svc.Config["supervisor_conf_path"]; ok {
+				val := strings.TrimSpace(fmt.Sprintf("%v", confPath))
+				if val != "" {
+					absPath := val
+					if !filepath.IsAbs(val) && p.Path != "" {
+						absPath = filepath.Join(p.Path, val)
+					}
+					target := "/etc/supervisor/conf.d"
+					for i, v := range volumes {
+						if strings.HasSuffix(v, ":"+target) {
+							volumes[i] = fmt.Sprintf("%s:%s:ro", absPath, target)
+							break
+						}
+					}
+				}
+			}
+		}
 		if svc.TemplateName == "nginx" {
 			nginxMountPath := tmpl.MountProjectPath
 			if nginxMountPath == "" {

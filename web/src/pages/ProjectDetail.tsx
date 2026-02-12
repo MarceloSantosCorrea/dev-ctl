@@ -325,6 +325,21 @@ export default function ProjectDetail() {
                   })
                 }}
                 isUpdatingDocumentRoot={updateServiceMutation.isPending}
+                onUpdateSupervisorConfPath={(confPath) => {
+                  const nextConfig = { ...(svc.config || {}) }
+                  const trimmed = confPath.trim()
+                  if (trimmed) {
+                    nextConfig.supervisor_conf_path = trimmed
+                  } else {
+                    delete nextConfig.supervisor_conf_path
+                  }
+                  updateServiceMutation.mutate({
+                    serviceId: svc.id,
+                    name: svc.name,
+                    config: nextConfig,
+                  })
+                }}
+                isUpdatingSupervisorConfPath={updateServiceMutation.isPending}
                 template={templates?.find((t: Template) => t.name === svc.template_name)}
                 onUpdateImage={(image) => {
                   const tmpl = templates?.find((t: Template) => t.name === svc.template_name)

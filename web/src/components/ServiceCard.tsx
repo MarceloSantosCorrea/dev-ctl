@@ -28,6 +28,8 @@ interface ServiceCardProps {
   onUpdateImage?: (image: string) => void
   isUpdatingImage?: boolean
   onUpdateExtraPorts?: (extraPorts: ExtraPort[]) => void
+  onUpdateSupervisorConfPath?: (path: string) => void
+  isUpdatingSupervisorConfPath?: boolean
 }
 
 function CopyButton({ value }: { value: string }) {
@@ -58,6 +60,8 @@ export default function ServiceCard({
   onUpdateImage,
   isUpdatingImage = false,
   onUpdateExtraPorts,
+  onUpdateSupervisorConfPath,
+  isUpdatingSupervisorConfPath = false,
 }: ServiceCardProps) {
   const Icon = categoryIcons[template?.category || ''] || categoryIcons[service.template_name] || HardDrive
   const isNginx = service.template_name === 'nginx'
@@ -68,6 +72,14 @@ export default function ServiceCard({
   const [editingDocumentRoot, setEditingDocumentRoot] = useState(false)
   const [documentRootInput, setDocumentRootInput] = useState(configuredDocumentRoot)
 
+  const isSupervisord = service.template_name === 'supervisord'
+  const configuredSupervisorConfPath =
+    typeof service.config?.supervisor_conf_path === 'string'
+      ? (service.config.supervisor_conf_path as string)
+      : ''
+  const [editingSupervisorConf, setEditingSupervisorConf] = useState(false)
+  const [supervisorConfInput, setSupervisorConfInput] = useState(configuredSupervisorConfPath)
+
   const configuredExtraPorts: ExtraPort[] = Array.isArray(service.config?.extra_ports)
     ? (service.config.extra_ports as ExtraPort[])
     : []
@@ -77,6 +89,10 @@ export default function ServiceCard({
   useEffect(() => {
     setDocumentRootInput(configuredDocumentRoot)
   }, [configuredDocumentRoot, service.id])
+
+  useEffect(() => {
+    setSupervisorConfInput(configuredSupervisorConfPath)
+  }, [configuredSupervisorConfPath, service.id])
 
   useEffect(() => {
     setExtraPortsDraft(configuredExtraPorts)
@@ -212,6 +228,69 @@ export default function ServiceCard({
                     setEditingDocumentRoot(false)
                   }}
                   disabled={isUpdatingDocumentRoot}
+                  className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 border-0 cursor-pointer hover:bg-slate-200 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {isSupervisord && onUpdateSupervisorConfPath && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-medium text-slate-500 flex items-center gap-1">
+              <Settings className="w-3.5 h-3.5" />
+              Opções do Supervisord
+            </p>
+            {!editingSupervisorConf && (
+              <button
+                onClick={() => setEditingSupervisorConf(true)}
+                className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-600 border-0 cursor-pointer hover:bg-slate-200"
+              >
+                Editar
+              </button>
+            )}
+          </div>
+
+          {!editingSupervisorConf ? (
+            <p className="text-xs text-slate-600">
+              Supervisor conf path:{' '}
+              <span className="font-mono text-slate-800">
+                {configuredSupervisorConfPath || '(padrão — volume Docker)'}
+              </span>
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={supervisorConfInput}
+                onChange={(e) => setSupervisorConfInput(e.target.value)}
+                placeholder="docker/supervisor"
+                className="w-full px-2 py-1.5 border border-slate-300 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <p className="text-[11px] text-slate-500">
+                Caminho relativo ao projeto para os arquivos .conf do Supervisor.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    onUpdateSupervisorConfPath(supervisorConfInput)
+                    setEditingSupervisorConf(false)
+                  }}
+                  disabled={isUpdatingSupervisorConfPath}
+                  className="text-xs px-2 py-1 rounded bg-blue-600 text-white border-0 cursor-pointer hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Salvar
+                </button>
+                <button
+                  onClick={() => {
+                    setSupervisorConfInput(configuredSupervisorConfPath)
+                    setEditingSupervisorConf(false)
+                  }}
+                  disabled={isUpdatingSupervisorConfPath}
                   className="text-xs px-2 py-1 rounded bg-slate-100 text-slate-700 border-0 cursor-pointer hover:bg-slate-200 disabled:opacity-50"
                 >
                   Cancelar

@@ -1,0 +1,13 @@
+services:
+  devctl:
+    build: .
+    container_name: devctl
+    ports:
+      - "19800:19800"
+    environment:
+      - DEVCTL_HOST_DATA_DIR=${HOME}/.devctl
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /etc/hosts:/etc/hosts
+      - ${HOME}/.devctl:/root/.devctl
+    restart: unless-stopped

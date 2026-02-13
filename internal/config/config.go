@@ -3,10 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Config struct {
 	DataDir      string
+	HostDataDir  string
 	CertsDir     string
 	TraefikDir   string
 	TemplatesDir string
@@ -18,14 +20,32 @@ func DefaultConfig() *Config {
 	homeDir, _ := os.UserHomeDir()
 	dataDir := filepath.Join(homeDir, ".devctl")
 
+	hostDataDir := os.Getenv("DEVCTL_HOST_DATA_DIR")
+	if hostDataDir == "" {
+		hostDataDir = dataDir
+	}
+
 	return &Config{
 		DataDir:      dataDir,
+		HostDataDir:  hostDataDir,
 		CertsDir:     filepath.Join(dataDir, "certs"),
 		TraefikDir:   filepath.Join(dataDir, "traefik"),
 		TemplatesDir: filepath.Join(dataDir, "templates"),
 		DBPath:       filepath.Join(dataDir, "devctl.db"),
 		APIPort:      19800,
 	}
+}
+
+// HostPath traduz um caminho do container para o caminho equivalente no host.
+func (c *Config) HostPath(containerPath string) string {
+	if c.HostDataDir == c.DataDir {
+		return containerPath
+	}
+	rel, err := filepath.Rel(c.DataDir, containerPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return containerPath
+	}
+	return filepath.Join(c.HostDataDir, rel)
 }
 
 func (c *Config) EnsureDirs() error {

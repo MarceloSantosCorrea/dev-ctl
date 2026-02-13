@@ -692,7 +692,7 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir 
 					target := "/etc/supervisor/conf.d"
 					for i, v := range volumes {
 						if strings.HasSuffix(v, ":"+target) {
-							volumes[i] = fmt.Sprintf("%s:%s:ro", absPath, target)
+							volumes[i] = fmt.Sprintf("%s:%s:ro", s.cfg.HostPath(absPath), target)
 							break
 						}
 					}
@@ -715,7 +715,7 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir 
 			if err != nil {
 				return nil, fmt.Errorf("writing nginx config for %s: %w", svc.Name, err)
 			}
-			volumes = append(volumes, fmt.Sprintf("%s:/etc/nginx/conf.d/default.conf:ro", confPath))
+			volumes = append(volumes, fmt.Sprintf("%s:/etc/nginx/conf.d/default.conf:ro", s.cfg.HostPath(confPath)))
 		}
 
 		// Allocate ports (reuse existing allocations)
@@ -822,7 +822,7 @@ func (s *Service) buildComposeSpecs(ctx context.Context, p *Project, projectDir 
 		specs = append(specs, docker.ServiceSpec{
 			Name:           svc.Name,
 			Image:          img,
-			DockerfilePath: dockerfilePath,
+			DockerfilePath: s.cfg.HostPath(dockerfilePath),
 			InternalPorts:  portMappings,
 			Environment:    env,
 			Volumes:        volumes,

@@ -1,5 +1,9 @@
 {
     "mcpServers": {
+        "devctl": {
+            "command": "/usr/local/bin/devctl",
+            "args": ["mcp"]
+        },
         "playwright": {
             "command": "npx",
             "args": [

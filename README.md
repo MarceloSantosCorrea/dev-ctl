@@ -34,10 +34,13 @@ cd web && npm install && npm run build && cd ..
 # 2. Compilar o binário
 go build -o devctl ./cmd/devctl/
 
-# 3. Inicializar (cria diretórios, instala mkcert, inicia Traefik, configura sudoers)
+# 3. Instalar o binário no sistema (adiciona ao PATH)
+sudo install -m 755 devctl /usr/local/bin/devctl
+
+# 4. Inicializar (cria diretórios, instala mkcert, inicia Traefik, configura sudoers)
 sudo devctl init
 
-# 4. Iniciar o servidor
+# 5. Iniciar o servidor
 devctl serve
 ```
 
@@ -142,12 +145,14 @@ Adicione ao seu arquivo de configuração do Claude Code:
 {
   "mcpServers": {
     "devctl": {
-      "command": "/caminho/para/devctl",
+      "command": "/usr/local/bin/devctl",
       "args": ["mcp"]
     }
   }
 }
 ```
+
+> Use `which devctl` para confirmar o caminho do binário após a instalação. O projeto já inclui um `.mcp.json` na raiz com essa configuração — o Claude Code o carrega automaticamente ao abrir o repositório.
 
 ### Ferramentas disponíveis via MCP
 

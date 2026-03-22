@@ -96,6 +96,8 @@ export const api = {
     request<{ status: string }>(`/projects/${id}/up`, { method: 'POST' }),
   projectDown: (id: string) =>
     request<{ status: string }>(`/projects/${id}/down`, { method: 'POST' }),
+  projectRebuild: (id: string) =>
+    request<{ status: string }>(`/projects/${id}/rebuild`, { method: 'POST' }),
 
   // Services
   addService: (projectId: string, data: { template_name: string; name: string; config?: Record<string, unknown> }) =>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Play, Square, Trash2, ExternalLink, Loader2, AlertTriangle, ArrowLeft, CircleDot, FolderOpen, Plus, Check,
+  Play, Square, Trash2, ExternalLink, Loader2, AlertTriangle, ArrowLeft, CircleDot, FolderOpen, Plus, Check, RefreshCw, Pencil, X,
 } from 'lucide-react'
 import { api, type Template } from '../lib/api'
 import ServiceCard from '../components/ServiceCard'
@@ -15,6 +15,8 @@ export default function ProjectDetail() {
   const queryClient = useQueryClient()
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [showAddService, setShowAddService] = useState(false)
+  const [editingPath, setEditingPath] = useState(false)
+  const [pathDraft, setPathDraft] = useState('')
 
   useEffect(() => {
     if (!toast) {
@@ -60,6 +62,17 @@ export default function ProjectDetail() {
     },
   })
 
+  const rebuildMutation = useMutation({
+    mutationFn: () => api.projectRebuild(id!),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
+    onError: (err) => {
+      setToast({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Falha ao rebuildar o projeto.',
+      })
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteProject(id!),
     onSuccess: () => {
@@ -81,6 +94,19 @@ export default function ProjectDetail() {
   const toggleSSLMutation = useMutation({
     mutationFn: (enabled: boolean) => api.updateProject(id!, { ssl_enabled: enabled }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project', id] }),
+  })
+
+  const updatePathMutation = useMutation({
+    mutationFn: (newPath: string) =>
+      api.updateProject(id!, { name: project?.name, path: newPath }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project', id] })
+      setEditingPath(false)
+      setToast({ type: 'success', message: 'Diretório atualizado.' })
+    },
+    onError: (err) => {
+      setToast({ type: 'error', message: err instanceof Error ? err.message : 'Falha ao atualizar o diretório.' })
+    },
   })
 
   const updateServiceMutation = useMutation({
@@ -188,11 +214,53 @@ export default function ProjectDetail() {
               {scheme}://{project.domain}
               <ExternalLink className="w-3 h-3" />
             </a>
-            {project.path && (
-              <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                <FolderOpen className="w-3 h-3" />
-                <span className="font-mono">{project.path}</span>
-              </p>
+            {/* Path — view mode */}
+            {!editingPath && (
+              <div className="flex items-center gap-1 mt-1">
+                <FolderOpen className="w-3 h-3 text-slate-400" />
+                <span className="text-sm text-slate-500 font-mono">
+                  {project.path || <em className="not-italic text-slate-400">nenhum</em>}
+                </span>
+                <button
+                  onClick={() => { setPathDraft(project.path || ''); setEditingPath(true) }}
+                  disabled={project.status === 'running'}
+                  title={project.status === 'running' ? 'Pare o projeto antes de editar o diretório' : 'Editar diretório'}
+                  className="p-0.5 rounded text-slate-400 hover:text-slate-600 border-0 bg-transparent cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+
+            {/* Path — edit mode */}
+            {editingPath && (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  value={pathDraft}
+                  onChange={(e) => setPathDraft(e.target.value)}
+                  placeholder="/home/marcelo/developer/meu-projeto"
+                  className="text-sm font-mono px-2 py-0.5 border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 w-80"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') updatePathMutation.mutate(pathDraft)
+                    if (e.key === 'Escape') setEditingPath(false)
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => updatePathMutation.mutate(pathDraft)}
+                  disabled={updatePathMutation.isPending}
+                  className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 border-0 cursor-pointer disabled:opacity-50"
+                >
+                  {updatePathMutation.isPending ? '...' : 'Salvar'}
+                </button>
+                <button
+                  onClick={() => setEditingPath(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 border-0 bg-transparent cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             )}
             {hasWebService && (
               <label className="flex items-center gap-2 mt-2">
@@ -230,6 +298,18 @@ export default function ProjectDetail() {
                 Iniciar
               </button>
             )}
+            <button
+              onClick={() => rebuildMutation.mutate()}
+              disabled={rebuildMutation.isPending || upMutation.isPending || downMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 border-0 cursor-pointer"
+            >
+              {rebuildMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Rebuild
+            </button>
             <button
               onClick={() => {
                 if (window.confirm(`Excluir o projeto "${project.name}"? Esta ação não pode ser desfeita.`)) {

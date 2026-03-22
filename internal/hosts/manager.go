@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -62,8 +63,10 @@ func (m *Manager) SetDomains(domains []string) error {
 
 	// On WSL, also sync to the Windows hosts file
 	if isWSL() {
+		fmt.Fprintln(os.Stderr, "[devctl] Atualizando hosts do Windows — uma janela UAC pode aparecer, clique em Sim.")
 		if err := syncToWindowsHosts(domains); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not sync Windows hosts file: %v\n", err)
+			fmt.Fprintf(os.Stderr, "⚠ Não foi possível atualizar o hosts do Windows: %v\n", err)
+			fmt.Fprintln(os.Stderr, "  As entradas serão perdidas ao reiniciar o WSL. Execute 'devctl hosts-sync' para tentar novamente.")
 		}
 	}
 
@@ -71,21 +74,41 @@ func (m *Manager) SetDomains(domains []string) error {
 }
 
 // writeWithSudo writes content to the hosts file using sudo tee.
-// Uses sudo -n (non-interactive) first; falls back to interactive sudo.
+// Content is staged in a temp file so that stdin stays free for the sudo
+// password prompt when running interactively (avoids WSL2 stdin collision).
 func (m *Manager) writeWithSudo(content string) error {
-	// Try non-interactive first (works if sudoers rule is configured)
+	// Stage content in a temp file
+	tmp, err := os.CreateTemp("", "devctl-hosts-*")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	tmp.Close()
+
+	// Try non-interactive first (works if NOPASSWD sudoers rule is configured)
+	f, err := os.Open(tmp.Name())
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command("sudo", "-n", "tee", m.filePath)
-	cmd.Stdin = bytes.NewBufferString(content)
-	cmd.Stdout = nil
+	cmd.Stdin = f
+	cmd.Stdout = io.Discard
 	cmd.Stderr = nil
-	if cmd.Run() == nil {
+	runErr := cmd.Run()
+	f.Close()
+	if runErr == nil {
 		return nil
 	}
 
-	// Fall back to interactive sudo (requires TTY)
-	cmd = exec.Command("sudo", "tee", m.filePath)
-	cmd.Stdin = bytes.NewBufferString(content)
-	cmd.Stdout = nil
+	// Fall back to interactive sudo: pipe content via shell redirect so stdin
+	// remains available for the password prompt (avoids stdin collision on WSL2)
+	cmd = exec.Command("sudo", "sh", "-c",
+		fmt.Sprintf("tee %s < %s > /dev/null", m.filePath, tmp.Name()))
+	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

@@ -10,12 +10,19 @@ import (
 const portOffset = 10000
 
 type Manager struct {
-	db *sql.DB
-	mu sync.Mutex
+	db          *sql.DB
+	mu          sync.Mutex
+	portChecker func(int, string) bool
 }
 
 func NewManager(db *sql.DB) *Manager {
-	return &Manager{db: db}
+	return &Manager{db: db, portChecker: isPortAvailable}
+}
+
+// NewManagerWithChecker creates a Manager with a custom port availability checker.
+// Used in tests to avoid depending on real host port state.
+func NewManagerWithChecker(db *sql.DB, checker func(int, string) bool) *Manager {
+	return &Manager{db: db, portChecker: checker}
 }
 
 // AllocatePort finds the next available external port for a given internal port.
@@ -52,7 +59,7 @@ func (m *Manager) AllocatePort(serviceID string, internalPort int, protocol stri
 			continue
 		}
 
-		if !isPortAvailable(port, protocol) {
+		if !m.portChecker(port, protocol) {
 			continue
 		}
 

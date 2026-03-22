@@ -52,6 +52,7 @@ func NewRouter(projectSvc *project.Service, dockerCli *docker.Client, templateDi
 			r.Delete("/projects/{id}", ph.Delete)
 			r.Post("/projects/{id}/up", ph.Up)
 			r.Post("/projects/{id}/down", ph.Down)
+			r.Post("/projects/{id}/rebuild", ph.Rebuild)
 			r.Get("/projects/{id}/logs", ph.Logs)
 
 			// Services within projects

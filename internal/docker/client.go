@@ -71,6 +71,34 @@ func (c *Client) ListProjectContainers(ctx context.Context, projectName string) 
 	return statuses, nil
 }
 
+// ListAllDevctlContainers retorna todos os containers cujo nome começa com "devctl-".
+func (c *Client) ListAllDevctlContainers(ctx context.Context) ([]ContainerStatus, error) {
+	f := filters.NewArgs(filters.Arg("name", "devctl-"))
+	containers, err := c.cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: f,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result []ContainerStatus
+	for _, ctr := range containers {
+		name := ""
+		if len(ctr.Names) > 0 {
+			name = strings.TrimPrefix(ctr.Names[0], "/")
+		}
+		result = append(result, ContainerStatus{
+			ID:     ctr.ID[:12],
+			Name:   name,
+			Image:  ctr.Image,
+			State:  ctr.State,
+			Status: ctr.Status,
+		})
+	}
+	return result, nil
+}
+
 // GetContainerLogs returns a reader for container logs.
 func (c *Client) GetContainerLogs(ctx context.Context, containerID string, follow bool) (io.ReadCloser, error) {
 	return c.cli.ContainerLogs(ctx, containerID, container.LogsOptions{
@@ -90,6 +118,28 @@ func ComposeUp(ctx context.Context, composeFilePath string, projectName string) 
 	)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		return fmt.Errorf("docker compose up failed: %s: %w", string(output), err)
+	}
+	return nil
+}
+
+// ComposeUpNoCache rebuilds images without cache and starts all containers.
+func ComposeUpNoCache(ctx context.Context, composeFilePath string, projectName string) error {
+	build := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFilePath,
+		"-p", "devctl-"+projectName,
+		"build", "--no-cache",
+	)
+	if output, err := build.CombinedOutput(); err != nil {
+		return fmt.Errorf("docker compose build --no-cache failed: %s: %w", string(output), err)
+	}
+
+	up := exec.CommandContext(ctx, "docker", "compose",
+		"-f", composeFilePath,
+		"-p", "devctl-"+projectName,
+		"up", "-d",
+	)
+	if output, err := up.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker compose up failed: %s: %w", string(output), err)
 	}
 	return nil

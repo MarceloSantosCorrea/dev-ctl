@@ -119,6 +119,16 @@ func (h *ProjectHandler) Down(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
 
+func (h *ProjectHandler) Rebuild(w http.ResponseWriter, r *http.Request) {
+	user := auth.UserFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+	if err := h.svc.ProjectRebuild(r.Context(), id, user.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "running"})
+}
+
 func (h *ProjectHandler) Logs(w http.ResponseWriter, r *http.Request) {
 	user := auth.UserFromContext(r.Context())
 	id := chi.URLParam(r, "id")

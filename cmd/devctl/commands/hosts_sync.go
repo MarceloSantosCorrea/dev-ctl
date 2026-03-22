@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -31,35 +32,9 @@ var hostsSyncCmd = &cobra.Command{
 
 		templateDir := config.ResolveTemplatesDir(cfg)
 
-		// Query projects with their services to check for web services
-		rows, err := db.QueryContext(ctx, "SELECT p.domain, s.template_name FROM projects p INNER JOIN services s ON s.project_id = p.id")
+		domains, err := collectWebDomains(ctx, db, templateDir)
 		if err != nil {
-			return fmt.Errorf("querying projects: %w", err)
-		}
-		defer rows.Close()
-
-		// Collect domains that have at least one web/proxy service
-		webDomains := map[string]bool{}
-		for rows.Next() {
-			var domain, templateName string
-			if err := rows.Scan(&domain, &templateName); err != nil {
-				return err
-			}
-			if webDomains[domain] {
-				continue
-			}
-			tmpl, err := project.LoadTemplate(templateDir, templateName)
-			if err == nil && (tmpl.Category == "web" || tmpl.Category == "proxy") {
-				webDomains[domain] = true
-			}
-		}
-		if err := rows.Err(); err != nil {
 			return err
-		}
-
-		domains := []string{"devctl.local"}
-		for d := range webDomains {
-			domains = append(domains, d)
 		}
 
 		fmt.Printf("Syncing %d domain(s) to /etc/hosts...\n", len(domains))
@@ -75,4 +50,39 @@ var hostsSyncCmd = &cobra.Command{
 
 		return nil
 	},
+}
+
+// collectWebDomains queries the database for all projects with web or proxy services
+// and returns a list of domains to sync to /etc/hosts, always including "devctl.local".
+func collectWebDomains(ctx context.Context, db *sql.DB, templateDir string) ([]string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT p.domain, s.template_name FROM projects p INNER JOIN services s ON s.project_id = p.id")
+	if err != nil {
+		return nil, fmt.Errorf("querying projects: %w", err)
+	}
+	defer rows.Close()
+
+	webDomains := map[string]bool{}
+	for rows.Next() {
+		var domain, templateName string
+		if err := rows.Scan(&domain, &templateName); err != nil {
+			return nil, err
+		}
+		if webDomains[domain] {
+			continue
+		}
+		tmpl, err := project.LoadTemplate(templateDir, templateName)
+		if err == nil && (tmpl.Category == "web" || tmpl.Category == "proxy") {
+			webDomains[domain] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	domains := []string{"devctl.local"}
+	for d := range webDomains {
+		domains = append(domains, d)
+	}
+
+	return domains, nil
 }

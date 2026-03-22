@@ -144,10 +144,16 @@ var initCmd = &cobra.Command{
 			fmt.Println("done")
 		}
 
-		// 7. Add devctl.local to /etc/hosts
-		fmt.Print("Adding devctl.local to /etc/hosts... ")
+		// 7. Sync all project domains to /etc/hosts
+		fmt.Print("Syncing domains to /etc/hosts... ")
+		templateDir := config.ResolveTemplatesDir(cfg)
+		domains, domainsErr := collectWebDomains(ctx, db, templateDir)
+		if domainsErr != nil {
+			fmt.Printf("warning: %v\n", domainsErr)
+			domains = []string{"devctl.local"}
+		}
 		hostsMgr := hosts.NewManager()
-		if err := hostsMgr.AddDomain("devctl.local"); err != nil {
+		if err := hostsMgr.SetDomains(domains); err != nil {
 			fmt.Printf("failed: %v\n", err)
 			fmt.Println("  You can add it manually: sudo sh -c 'echo \"127.0.0.1 devctl.local\" >> /etc/hosts'")
 		} else {

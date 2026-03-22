@@ -170,6 +170,7 @@ func (s *Service) CreateProject(ctx context.Context, input CreateProjectInput, u
 		return nil, err
 	}
 	proj.Warnings = warnings
+	s.writeMarkerFile(proj)
 	return proj, nil
 }
 
@@ -188,6 +189,13 @@ func (s *Service) GetProject(ctx context.Context, id string, userID string) (*Pr
 		return nil, err
 	}
 	p.Services = svcs
+
+	if containers, err := s.dockerCli.ListProjectContainers(ctx, p.Name); err == nil {
+		if real := deriveStatus(containers); real != p.Status {
+			s.updateStatus(ctx, p.ID, real)
+			p.Status = real
+		}
+	}
 
 	return p, nil
 }
@@ -231,7 +239,11 @@ func (s *Service) ListProjects(ctx context.Context, userID string) ([]Project, e
 		p.Services = svcs
 		projects = append(projects, p)
 	}
-	return projects, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.reconcileProjectStatuses(ctx, projects)
+	return projects, nil
 }
 
 // DeleteProject removes a project and all associated resources.
@@ -281,6 +293,16 @@ func (s *Service) UpdateProject(ctx context.Context, id string, name string, pat
 		return nil, err
 	}
 
+	// Guard: preserve name if not provided (e.g. SSL-only toggle)
+	if name == "" {
+		name = oldProject.Name
+	}
+
+	// Block path change if project is running
+	if path != oldProject.Path && oldProject.Status == "running" {
+		return nil, fmt.Errorf("pare o projeto antes de alterar o diretório")
+	}
+
 	domain := name + ".local"
 	_, err = s.db.ExecContext(ctx,
 		"UPDATE projects SET name = ?, domain = ?, path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?",
@@ -288,6 +310,18 @@ func (s *Service) UpdateProject(ctx context.Context, id string, name string, pat
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Handle marker file when path changes
+	if path != oldProject.Path {
+		if oldProject.Path != "" {
+			_ = os.Remove(filepath.Join(oldProject.Path, ".devctl"))
+		}
+		if path != "" {
+			if updated, err := s.GetProject(ctx, id, userID); err == nil {
+				s.writeMarkerFile(updated)
+			}
+		}
 	}
 
 	// Handle SSL toggle
@@ -387,6 +421,52 @@ func (s *Service) ProjectDown(ctx context.Context, id string, userID string) err
 	return nil
 }
 
+// ProjectRebuild stops the project, regenerates the compose file, and starts with --no-cache.
+func (s *Service) ProjectRebuild(ctx context.Context, id string, userID string) error {
+	p, err := s.GetProject(ctx, id, userID)
+	if err != nil {
+		return err
+	}
+
+	composePath := filepath.Join(s.cfg.DataDir, "projects", p.Name, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err == nil {
+		if err := docker.ComposeDown(ctx, composePath, p.Name); err != nil {
+			return fmt.Errorf("compose down: %w", err)
+		}
+	}
+
+	projectDir := filepath.Join(s.cfg.DataDir, "projects", p.Name)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return err
+	}
+
+	specs, err := s.buildComposeSpecs(ctx, p, projectDir)
+	if err != nil {
+		return fmt.Errorf("building compose specs: %w", err)
+	}
+
+	composeData, err := docker.GenerateCompose(p.Name, specs, p.SSLEnabled)
+	if err != nil {
+		return fmt.Errorf("generating compose: %w", err)
+	}
+
+	if err := os.WriteFile(composePath, composeData, 0644); err != nil {
+		return err
+	}
+
+	if err := s.networkMgr.EnsureProxyNetwork(ctx); err != nil {
+		return fmt.Errorf("ensuring proxy network: %w", err)
+	}
+
+	if err := docker.ComposeUpNoCache(ctx, composePath, p.Name); err != nil {
+		s.updateStatus(ctx, id, "error")
+		return err
+	}
+
+	s.updateStatus(ctx, id, "running")
+	return nil
+}
+
 // ListAllProjects returns all projects regardless of user (for CLI use).
 func (s *Service) ListAllProjects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
@@ -418,6 +498,53 @@ func (s *Service) ProjectUpByID(ctx context.Context, id string) error {
 // ProjectDownByID stops a project without user filtering (for CLI use).
 func (s *Service) ProjectDownByID(ctx context.Context, id string) error {
 	return s.projectDown(ctx, id)
+}
+
+// ProjectRebuildByID rebuilds a project without user filtering (for CLI/MCP use).
+func (s *Service) ProjectRebuildByID(ctx context.Context, id string) error {
+	p, err := s.getProjectByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	composePath := filepath.Join(s.cfg.DataDir, "projects", p.Name, "docker-compose.yml")
+	if _, err := os.Stat(composePath); err == nil {
+		if err := docker.ComposeDown(ctx, composePath, p.Name); err != nil {
+			return fmt.Errorf("compose down: %w", err)
+		}
+	}
+
+	projectDir := filepath.Join(s.cfg.DataDir, "projects", p.Name)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		return err
+	}
+
+	specs, err := s.buildComposeSpecs(ctx, p, projectDir)
+	if err != nil {
+		return fmt.Errorf("building compose specs: %w", err)
+	}
+
+	composeData, err := docker.GenerateCompose(p.Name, specs, p.SSLEnabled)
+	if err != nil {
+		return fmt.Errorf("generating compose: %w", err)
+	}
+
+	if err := os.WriteFile(composePath, composeData, 0644); err != nil {
+		return err
+	}
+
+	if err := s.networkMgr.EnsureProxyNetwork(ctx); err != nil {
+		return fmt.Errorf("ensuring proxy network: %w", err)
+	}
+
+	if err := docker.ComposeUpNoCache(ctx, composePath, p.Name); err != nil {
+		s.updateStatus(ctx, id, "error")
+		return err
+	}
+
+	s.updateStatus(ctx, id, "running")
+	s.writeMarkerFile(p)
+	return nil
 }
 
 // projectDown stops containers without user filtering (internal use).
@@ -478,6 +605,7 @@ func (s *Service) projectUp(ctx context.Context, id string) error {
 	}
 
 	s.updateStatus(ctx, id, "running")
+	s.writeMarkerFile(p)
 	return nil
 }
 
@@ -955,6 +1083,54 @@ func buildNginxConfig(docRoot, phpUpstream, phpScriptRoot string) string {
 `, root, scriptRoot, root, phpUpstream)
 }
 
+// deriveStatus determina o status de um projeto a partir do estado real dos seus containers.
+func deriveStatus(containers []docker.ContainerStatus) string {
+	if len(containers) == 0 {
+		return "stopped"
+	}
+	running := 0
+	for _, c := range containers {
+		if c.State == "running" {
+			running++
+		}
+	}
+	if running == 0 {
+		return "stopped"
+	}
+	if running == len(containers) {
+		return "running"
+	}
+	return "error"
+}
+
+// reconcileProjectStatuses busca todos os containers devctl de uma vez e atualiza o DB
+// caso o status armazenado divirja do estado real dos containers.
+func (s *Service) reconcileProjectStatuses(ctx context.Context, projects []Project) {
+	all, err := s.dockerCli.ListAllDevctlContainers(ctx)
+	if err != nil {
+		return // Docker indisponível, mantém status atual
+	}
+
+	// Agrupa containers por ID de projeto usando matching exato por prefixo
+	byProject := make(map[string][]docker.ContainerStatus)
+	for _, p := range projects {
+		prefix := "devctl-" + p.Name + "-"
+		for _, c := range all {
+			if strings.HasPrefix(c.Name, prefix) {
+				byProject[p.ID] = append(byProject[p.ID], c)
+			}
+		}
+	}
+
+	for i, p := range projects {
+		real := deriveStatus(byProject[p.ID])
+		if real != p.Status {
+			s.updateStatus(ctx, p.ID, real)
+			projects[i].Status = real
+		}
+	}
+}
+
 func (s *Service) updateStatus(ctx context.Context, id, status string) {
 	s.db.ExecContext(ctx,
 		"UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -1151,6 +1327,24 @@ func (s *Service) streamContainerLogs(ctx context.Context, ctr docker.ContainerS
 			}
 		}
 	}
+}
+
+// writeMarkerFile escreve um arquivo .devctl na raiz do projeto local,
+// permitindo que o Claude Code (via MCP) identifique o projeto automaticamente.
+func (s *Service) writeMarkerFile(p *Project) {
+	if p.Path == "" {
+		return
+	}
+	type marker struct {
+		Name   string `json:"name"`
+		ID     string `json:"id"`
+		Domain string `json:"domain"`
+	}
+	b, err := json.MarshalIndent(marker{p.Name, p.ID, p.Domain}, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(filepath.Join(p.Path, ".devctl"), b, 0644)
 }
 
 func (s *Service) refreshTraefikCerts() {

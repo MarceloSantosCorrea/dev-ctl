@@ -85,9 +85,11 @@ func setupTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func alwaysAvailable(port int, protocol string) bool { return true }
+
 func TestAllocatePort_FirstSlot(t *testing.T) {
 	db := setupTestDB(t)
-	m := NewManager(db)
+	m := NewManagerWithChecker(db, alwaysAvailable)
 
 	port, err := m.AllocatePort("s1", 3306, "tcp")
 	if err != nil {
@@ -100,7 +102,7 @@ func TestAllocatePort_FirstSlot(t *testing.T) {
 
 func TestAllocatePort_SecondSlot(t *testing.T) {
 	db := setupTestDB(t)
-	m := NewManager(db)
+	m := NewManagerWithChecker(db, alwaysAvailable)
 
 	// Allocate first slot
 	_, err := m.AllocatePort("s1", 3306, "tcp")

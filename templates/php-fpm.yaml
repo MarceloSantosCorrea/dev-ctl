@@ -27,9 +27,6 @@ versions:
 dockerfile: |
   RUN apt-get update && apt-get install -y \
       libzip-dev libpng-dev libonig-dev libxml2-dev libcurl4-openssl-dev unzip \
-      libc-client2007e-dev libkrb5-dev libssl-dev \
-      && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
-      && docker-php-ext-install imap \
       && docker-php-ext-install pdo pdo_mysql zip gd mbstring xml curl bcmath \
       && (docker-php-ext-install opcache 2>/dev/null || true) \
       && apt-get clean && rm -rf /var/lib/apt/lists/*

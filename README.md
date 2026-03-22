@@ -28,15 +28,20 @@ O **devctl** cria e gerencia ambientes Docker multi-container a partir de templa
 ## Instalação
 
 ```bash
-# Compilar o binário
+# 1. Compilar o frontend (obrigatório antes do build Go)
+cd web && npm install && npm run build && cd ..
+
+# 2. Compilar o binário
 go build -o devctl ./cmd/devctl/
 
-# Inicializar (cria diretórios, instala mkcert, inicia Traefik, configura sudoers)
+# 3. Inicializar (cria diretórios, instala mkcert, inicia Traefik, configura sudoers)
 sudo devctl init
 
-# Iniciar o servidor
+# 4. Iniciar o servidor
 devctl serve
 ```
+
+> O frontend React é embutido no binário Go via `embed.go`. O build do frontend deve ser feito **antes** do `go build`, caso contrário o erro `pattern web/dist/*: no matching files found` será exibido.
 
 Acesse o dashboard em [http://devctl.local:19800](http://devctl.local:19800).
 
@@ -254,4 +259,4 @@ cd web && npm run build
 cd web && npm run lint
 ```
 
-> O frontend React é embutido no binário via `embed.go`. É necessário fazer o build do frontend antes de compilar o Go para produção.
+> Lembre-se: sempre recompile o frontend (`npm run build`) antes de recompilar o binário Go quando houver mudanças no `web/`.

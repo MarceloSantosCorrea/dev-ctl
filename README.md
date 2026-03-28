@@ -34,8 +34,11 @@ cd web && npm install && npm run build && cd ..
 # 2. Compilar o binário
 go build -o devctl ./cmd/devctl/
 
-# 3. Instalar o binário no sistema (adiciona ao PATH)
+# 3. Instalar o binário globalmente no sistema (adiciona ao PATH)
 sudo install -m 755 devctl /usr/local/bin/devctl
+
+# Verificar se o comando ficou disponível globalmente
+which devctl
 
 # 4. Inicializar (cria diretórios, instala mkcert, inicia Traefik, configura sudoers)
 sudo devctl init
